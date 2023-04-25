@@ -14,6 +14,9 @@ buildscript {
     }
 }
 
+def localProperties = new Properties()
+localProperties.load(new FileInputStream(rootProject.file('local.properties')))
+
 apply plugin: 'org.jetbrains.dokka'
 
 afterEvaluate {
@@ -52,10 +55,20 @@ afterEvaluate {
     }
 }
 
-allprojects {
-    plugins.withId("com.vanniktech.maven.publish") {
-        mavenPublish {
-            sonatypeHost = "S01"
+subprojects {
+    plugins.withId("maven-publish") {
+        publishing {
+            repositories {
+                // Add the following lines to include the GitHub Package Registry
+                maven {
+                    name = "GitHubPackages"
+                    url = uri("https://maven.pkg.github.com/PeachChain/sceneview-android")
+                    credentials {
+                        username = localProperties['gpr.user']
+                        password = localProperties['gpr.key']
+                    }
+                }
+            }
         }
     }
 }
