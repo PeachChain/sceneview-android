@@ -7,10 +7,7 @@ import android.media.MediaRecorder
 import android.os.Handler
 import android.os.Looper
 import android.util.AttributeSet
-import android.view.Choreographer
-import android.view.MotionEvent
-import android.view.Surface
-import android.view.SurfaceView
+import android.view.*
 import androidx.lifecycle.Lifecycle
 import com.google.android.filament.*
 import com.google.android.filament.View.AntiAliasing
@@ -97,7 +94,7 @@ open class SceneView @JvmOverloads constructor(
             .viewport(width, height)
             .build(Manipulator.Mode.ORBIT)
     }
-) : SurfaceView(context, attrs, defStyleAttr, defStyleRes) {
+) : TextureView(context, attrs, defStyleAttr, defStyleRes) {
 
     /**
      * @param depth The value of the depth buffer at the picking query location
