@@ -69,11 +69,11 @@ android {
     }
 
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_1_8
-        targetCompatibility JavaVersion.VERSION_1_8
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
     }
     kotlinOptions {
-        jvmTarget = '1.8'
+        jvmTarget = '17'
     }
     buildFeatures {
         compose = true
@@ -103,7 +103,7 @@ dependencies {
 //    api 'dev.romainguy:kotlin-math:1.5.1'
 
     // Filament
-    def filament_version = '1.32.4'
+    def filament_version = '1.34.0'
     api "com.google.android.filament:filament-android:$filament_version"
     api "com.google.android.filament:gltfio-android:$filament_version"
     api "com.google.android.filament:filament-utils-android:$filament_version"
