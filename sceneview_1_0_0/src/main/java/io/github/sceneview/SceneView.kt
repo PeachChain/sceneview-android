@@ -314,8 +314,8 @@ open class SceneView @JvmOverloads constructor(
      * @see NodeManager.getNode
      */
     val allChildNodes: List<Node>
-        get() = nodeManager.entities.filter { scene.hasEntity(it) }
-            .mapNotNull { nodeManager.getNode(it) }
+        get() = nodeManager.entityNodes.filter { scene.hasEntity(it.key) }
+            .mapNotNull { it.value }
 
     /**
      * Inverts the winding order of front faces.
