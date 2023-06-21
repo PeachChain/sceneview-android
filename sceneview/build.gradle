@@ -3,6 +3,7 @@ plugins {
     id 'kotlin-android'
     id 'filament-tools-plugin'
     id 'org.jetbrains.dokka'
+    id 'maven-publish'
 }
 
 
@@ -68,11 +69,11 @@ android {
     }
 
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
     }
     kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_17
+        jvmTarget = '17'
     }
     buildFeatures {
         compose = true
@@ -129,4 +130,16 @@ dependencies {
     api "com.gorisse.thomas:android-view-lifecycle:1.0.5"
 }
 
-apply plugin: "com.vanniktech.maven.publish"
+afterEvaluate {
+    publishing {
+        publications {
+            release(MavenPublication) {
+                groupId = rootProject.ext.GROUP
+                artifactId = project.ext.POM_ARTIFACT_ID
+                version = project.ext.VERSION_NAME
+
+                from components.release
+            }
+        }
+    }
+}

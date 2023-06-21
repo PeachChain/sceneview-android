@@ -3,11 +3,11 @@ package io.github.sceneview.managers
 import com.google.android.filament.Engine
 import io.github.sceneview.Entity
 import io.github.sceneview.nodes.Node
+import java.util.concurrent.ConcurrentHashMap
 
 class NodeManager(val engine: Engine) {
 
-    private val entityNodes = mutableMapOf<Entity, Node>()
-    val entities get() = entityNodes.keys
+    val entityNodes = ConcurrentHashMap<Entity, Node>()
 
     fun hasComponent(e: Entity) = getNode(e) != null
 
@@ -37,9 +37,9 @@ class NodeManager(val engine: Engine) {
     }
 
     fun destroy() {
-        entities.forEach { entity ->
-            destroyNode(entity)
+        entityNodes.forEach { entity ->
+            destroyNode(entity.key)
         }
-        entities.clear()
+        entityNodes.clear()
     }
 }
