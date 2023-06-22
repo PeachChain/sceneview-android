@@ -6,13 +6,13 @@ import android.view.MotionEvent
 import com.google.android.filament.IndirectLight
 import com.google.ar.core.*
 import com.google.ar.core.CameraConfig.FacingDirection
-import com.google.ar.sceneform.ArCameraNode
 import io.github.sceneview.SceneLifecycle
 import io.github.sceneview.SceneLifecycleObserver
 import io.github.sceneview.SceneLifecycleOwner
 import io.github.sceneview.SceneView
 import io.github.sceneview.ar.arcore.*
 import io.github.sceneview.ar.camera.ArCameraStream
+import io.github.sceneview.ar.node.ArCameraNode
 import io.github.sceneview.ar.scene.PlaneRenderer
 import io.github.sceneview.environment.Environment
 import io.github.sceneview.light.Light
@@ -44,7 +44,7 @@ open class ArSceneView @JvmOverloads constructor(
 
     override val arCore = ARCore(activity, lifecycle, sessionFeatures)
 
-    override var frameRate: FrameRate = FrameRate.Half
+//    override var frameRate: FrameRate = FrameRate.Half
 
     private var _focusMode = Config.FocusMode.AUTO
 
@@ -160,53 +160,17 @@ open class ArSceneView @JvmOverloads constructor(
             arSession?.geospatialEnabled = value
         }
 
-    private var _sessionLightEstimationMode = Config.LightEstimationMode.ENVIRONMENTAL_HDR
-
     /**
      * ### The behavior of the lighting estimation subsystem
      *
      * These modes consist of separate APIs that allow for granular and realistic lighting
      * estimation for directional lighting, shadows, specular highlights, and reflections.
      */
-    var sessionLightEstimationMode: Config.LightEstimationMode
-        get() = arSession?.lightEstimationMode ?: _sessionLightEstimationMode
+    var lightEstimationMode = Config.LightEstimationMode.DISABLED
+        get() = arSession?.lightEstimationMode ?: field
         set(value) {
-            _sessionLightEstimationMode = value
+            field = value
             arSession?.lightEstimationMode = value
-        }
-
-    /**
-     * ### ARCore light estimation configuration
-     *
-     * ARCore estimate lighting to provide directional light, ambient spherical harmonics,
-     * and reflection cubemap estimation
-     *
-     * Light bounces off of surfaces differently depending on whether the surface has specular
-     * (highly reflective) or diffuse (not reflective) properties.
-     * For example, a metallic ball will be highly specular and reflect its environment, while
-     * another ball painted a dull matte gray will be diffuse. Most real-world objects have a
-     * combination of these properties — think of a scuffed-up bowling ball or a well-used credit
-     * card.
-     *
-     * Reflective surfaces also pick up colors from the ambient environment. The coloring of an
-     * object can be directly affected by the coloring of its environment. For example, a white ball
-     * in a blue room will take on a bluish hue.
-     *
-     * The main directional light API calculates the direction and intensity of the scene's
-     * main light source. This information allows virtual objects in your scene to show reasonably
-     * positioned specular highlights, and to cast shadows in a direction consistent with other
-     * visible real objects.
-     *
-     * @see LightEstimationMode.ENVIRONMENTAL_HDR
-     * @see LightEstimationMode.ENVIRONMENTAL_HDR_NO_REFLECTIONS
-     * @see LightEstimationMode.ENVIRONMENTAL_HDR_FAKE_REFLECTIONS
-     * @see LightEstimationMode.AMBIENT_INTENSITY
-     * @see LightEstimationMode.DISABLED
-     */
-    var lightEstimationMode: LightEstimationMode
-        get() = lightEstimator.mode
-        set(value) {
-            lightEstimator.mode = value
         }
 
     /**
@@ -250,7 +214,7 @@ open class ArSceneView @JvmOverloads constructor(
      * - Environment handles a reflections, indirect lighting and skybox.
      * - ARCore will estimate the direction, the intensity and the color of the light
      */
-    val lightEstimator = LightEstimator(lifecycle, ::onLightEstimationUpdate)
+    var lightEstimator: LightEstimator? = LightEstimator()
 
     var mainLightEstimated: Light? = null
         private set(value) {
@@ -361,14 +325,14 @@ open class ArSceneView @JvmOverloads constructor(
 
         session.configure { config ->
             // getting ar frame doesn't block and gives last frame
-            //config.updateMode = Config.UpdateMode.LATEST_CAMERA_IMAGE
+//            config.updateMode = Config.UpdateMode.LATEST_CAMERA_IMAGE
             // FocusMode must be changed after the session resume to work
             // config.focusMode = focusMode
             config.planeFindingMode = _planeFindingMode
             config.depthMode = _depthMode
             config.instantPlacementEnabled = _instantPlacementEnabled
             config.cloudAnchorEnabled = _cloudAnchorEnabled
-            config.lightEstimationMode = _sessionLightEstimationMode
+            config.lightEstimationMode = lightEstimationMode
             config.geospatialEnabled = _geospatialEnabled
         }
 
@@ -414,12 +378,14 @@ open class ArSceneView @JvmOverloads constructor(
         arSession?.update(frameTime)?.let { arFrame ->
             // During startup the camera system may not produce actual images immediately.
             // In this common case, a frame with timestamp = 0 will be returned.
-            if (arFrame.frame.timestamp != 0L && arFrame.time != currentFrame?.time) {
-                currentFrame = arFrame
-                doArFrame(arFrame)
-                super.doFrame(frameTime)
-            }
+//            if (arFrame.frame.timestamp != 0L
+            // && arFrame.time != currentFrame?.time
+//            ) {
+            currentFrame = arFrame
+            doArFrame(arFrame)
+//            }
         }
+        super.doFrame(frameTime)
     }
 
     /**
@@ -437,7 +403,12 @@ open class ArSceneView @JvmOverloads constructor(
 
         cameraNode.updateTrackedPose(camera)
 
-        arCameraStream.update(arFrame)
+        arCameraStream.update(this, arFrame)
+
+        lightEstimator?.update(this, arFrame)?.let { (environment, mainLight) ->
+            environmentEstimated = environment
+            mainLightEstimated = mainLight
+        }
 
         planeRenderer.update(arFrame)
 
@@ -461,11 +432,6 @@ open class ArSceneView @JvmOverloads constructor(
             onArFrame(arFrame)
         }
         onArFrame?.invoke(arFrame)
-    }
-
-    open fun onLightEstimationUpdate(lightEstimation: LightEstimator) {
-        mainLightEstimated = lightEstimation.mainLight
-        environmentEstimated = lightEstimation.environment
     }
 
     /**
@@ -540,8 +506,11 @@ open class ArSceneView @JvmOverloads constructor(
     ) = currentFrame?.hitTest(xPx, yPx, plane, depth, instant, approximateDistance)
 
     override fun destroy() {
-        arCameraStream.destroy()
-        planeRenderer.destroy()
+        if (!isDestroyed) {
+            arCameraStream.destroy()
+            lightEstimator?.destroy()
+            planeRenderer.destroy()
+        }
 
         super.destroy()
     }

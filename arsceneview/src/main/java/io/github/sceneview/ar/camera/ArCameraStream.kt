@@ -33,7 +33,7 @@ const val kDepthTextureParameter = "depthTexture"
  * ### Displays the Camera stream using Filament.
  */
 class ArCameraStream(
-    private val sceneView: ArSceneView,
+    sceneView: ArSceneView,
     standardMaterialLocation: String = "sceneview/materials/camera_stream_flat.filamat",
     depthOcclusionMaterialLocation: String = "sceneview/materials/camera_stream_depth.filamat"
 ) {
@@ -50,7 +50,7 @@ class ArCameraStream(
     /**
      * Passing multiple textures allows for a multithreaded rendering pipeline
      */
-    val cameraTextureIds = IntArray(4) { OpenGL.createExternalTextureId() }
+    val cameraTextureIds = IntArray(6) { OpenGL.createExternalTextureId() }
 
     /**
      * Textures buffer
@@ -68,8 +68,10 @@ class ArCameraStream(
      */
     var cameraTexture: Texture = cameraTextures[cameraTextureIds[0]]!!
         set(value) {
-            field = value
-            materialInstance.setExternalTexture(kCameraTextureParameter, value)
+            if (field != value) {
+                field = value
+                materialInstance.setExternalTexture(kCameraTextureParameter, value)
+            }
         }
 
     /**
@@ -174,6 +176,9 @@ class ArCameraStream(
         .receiveShadows(false)
         // Always draw the camera feed last to avoid overdraw
         .culling(false)
+//        .screenSpaceContactShadows(false)
+//        .blendOrder(0, 0)
+//        .globalBlendOrderEnabled(0, false)
         .priority(priority)
         .geometry(0, RenderableManager.PrimitiveType.TRIANGLES, vertexBuffer,
             IndexBuffer.Builder()
@@ -199,7 +204,7 @@ class ArCameraStream(
     // Note: ARCore expects the UV buffers to be direct or will assert in transformDisplayUvCoords
     private var transformedUvCoordinates: FloatBuffer? = null
 
-    fun update(arFrame: ArFrame) {
+    fun update(sceneView: ArSceneView, arFrame: ArFrame) {
         val frame = arFrame.frame
 
         // Recalculate camera Uvs if necessary.

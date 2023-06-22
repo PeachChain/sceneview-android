@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.lifecycle.LifecycleCoroutineScope
 import io.github.sceneview.Filament.assetLoader
 import io.github.sceneview.Filament.resourceLoader
+import io.github.sceneview.renderable.setCulling
 import io.github.sceneview.renderable.setScreenSpaceContactShadows
 import io.github.sceneview.utils.fileBuffer
 import io.github.sceneview.utils.useFileBufferNotNull
@@ -82,7 +83,8 @@ object GLTFLoader {
 
             //TODO: Used by Filament ModelViewer, see if it's usefull
             asset.renderableEntities.forEach {
-                it.setScreenSpaceContactShadows(true)
+//                it.setScreenSpaceContactShadows(false)
+                it.setCulling(true)
             }
         }
     }

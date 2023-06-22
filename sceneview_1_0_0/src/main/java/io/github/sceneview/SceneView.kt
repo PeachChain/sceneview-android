@@ -640,6 +640,12 @@ open class SceneView @JvmOverloads constructor(
 
         // Stop any pending frame
         choreographer.removeFrameCallback(frameScheduler)
+
+        if (nodeManager != sharedNodeManager) {
+            // Destroys all the created nodes
+            nodeManager.destroy()
+        }
+
         // Always detach the surface before destroying the engine
         uiHelper.detach()
 
@@ -695,11 +701,6 @@ open class SceneView @JvmOverloads constructor(
 
         indirectLight?.let { engine.destroyIndirectLight(it) }
         skybox?.let { engine.destroySkybox(it) }
-
-        if (nodeManager != sharedNodeManager) {
-            // Destroys all the created nodes
-            nodeManager.destroy()
-        }
 
         if (engine != sharedEngine) {
             engine.destroy()

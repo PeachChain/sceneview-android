@@ -14,15 +14,12 @@ import com.google.ar.sceneform.math.Matrix
 import com.google.ar.sceneform.math.Vector3
 import com.google.ar.sceneform.rendering.*
 import dev.romainguy.kotlin.math.*
+import io.github.sceneview.*
 import io.github.sceneview.Filament.transformManager
-import io.github.sceneview.SceneLifecycle
-import io.github.sceneview.SceneLifecycleObserver
-import io.github.sceneview.SceneView
 import io.github.sceneview.animation.NodeAnimator
 import io.github.sceneview.gesture.*
 import io.github.sceneview.math.*
 import io.github.sceneview.renderable.Renderable
-import io.github.sceneview.setTransform
 import io.github.sceneview.utils.FrameTime
 import kotlin.reflect.KProperty
 
@@ -271,7 +268,7 @@ open class Node(
      */
     var smoothSpeed = 5.0f
 
-    var smoothTransform: Transform = Transform(transform)
+    var smoothTransform: Transform? = null
 
     private var lastFrameTransform: Transform? = null
     private var lastFrameWorldTransform: Transform? = null
@@ -455,28 +452,32 @@ open class Node(
     override fun onFrame(frameTime: FrameTime) {
         super.onFrame(frameTime)
 
-        if (!smoothTransform.equalsWithDelta(transform)) {
-            if (transform != lastFrameTransform) {
-                // Stop smooth if any of the position/rotation/scale has changed meanwhile
-                smoothTransform = transform
+        smoothTransform?.let { smoothTransform ->
+            if (smoothTransform != transform) {
+                if (transform != lastFrameTransform) {
+                    // Stop smooth if any of the position/rotation/scale has changed meanwhile
+                    this.smoothTransform = null
+                } else {
+                    // Smooth the transform
+                    transform = slerp(
+                        start = transform,
+                        end = smoothTransform,
+                        deltaSeconds = frameTime.intervalSeconds,
+                        speed = smoothSpeed
+                    )
+                }
             } else {
-                // Smooth the transform
-                transform = slerp(
-                    start = transform,
-                    end = smoothTransform,
-                    deltaSeconds = frameTime.intervalSeconds,
-                    speed = smoothSpeed
-                )
+                this.smoothTransform = null
             }
-        } else {
-            smoothTransform = transform
         }
         lastFrameTransform = transform
 
-        if (worldTransform != lastFrameWorldTransform) {
-            transformInstance?.let { transformManager.setTransform(it, worldTransform) }
+        transformInstance?.let {
+            val worldTransform = this.worldTransform
+            if (transformManager.getTransform(it) != worldTransform) {
+                transformManager.setTransform(it, worldTransform)
+            }
         }
-        lastFrameWorldTransform = worldTransform
 
         onFrame.forEach { it(frameTime, this) }
     }
@@ -674,13 +675,9 @@ open class Node(
      *
      * @see transform
      */
-    fun smooth(transform: Transform, speed: Float = this.smoothSpeed) {
+    fun smooth(transform: Transform, speed: Float = smoothSpeed) {
         smoothSpeed = speed
-        if (!equals(this.transform, transform, DEFAULT_EPSILON)) {
-            this.smoothTransform = transform
-        } else {
-            this.transform = transform
-        }
+        smoothTransform = transform
     }
 
     fun animatePositions(vararg positions: Position): ObjectAnimator =

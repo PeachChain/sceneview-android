@@ -19,11 +19,11 @@ android {
         }
     }
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_1_8
-        targetCompatibility JavaVersion.VERSION_1_8
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions {
-        jvmTarget = '1.8'
+        jvmTarget = JavaVersion.VERSION_17
     }
     aaptOptions {
         noCompress 'filamat', 'ktx'
@@ -34,6 +34,6 @@ dependencies {
     implementation project(":samples:common")
 
     // SceneView
-    releaseImplementation "io.github.sceneview:sceneview:1.0.7"
+    releaseImplementation "io.github.sceneview:sceneview:1.0.9"
     debugImplementation project(":sceneview_1_0_0")
 }

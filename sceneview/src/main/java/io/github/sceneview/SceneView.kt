@@ -2,39 +2,30 @@ package io.github.sceneview
 
 import android.annotation.SuppressLint
 import android.content.Context
-import android.graphics.Color.BLACK
 import android.graphics.PixelFormat
-import android.graphics.drawable.ColorDrawable
-import android.graphics.drawable.Drawable
 import android.media.MediaRecorder
 import android.os.Handler
 import android.os.Looper
 import android.util.AttributeSet
-import android.view.Choreographer
-import android.view.MotionEvent
-import android.view.Surface
-import android.view.SurfaceView
+import android.view.*
 import androidx.activity.ComponentActivity
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.findFragment
 import androidx.lifecycle.*
 import com.google.android.filament.*
-import com.google.android.filament.Renderer.ClearOptions
+import com.google.android.filament.View
 import com.google.android.filament.View.*
 import com.google.android.filament.android.DisplayHelper
 import com.google.android.filament.android.UiHelper
 import com.google.android.filament.utils.HDRLoader
 import com.google.android.filament.utils.Manipulator
-import com.google.ar.sceneform.CameraNode
 import com.google.ar.sceneform.collision.CollisionSystem
-import com.google.ar.sceneform.rendering.ResourceManager
 import com.google.ar.sceneform.rendering.ViewAttachmentManager
 import com.gorisse.thomas.lifecycle.getActivity
 import io.github.sceneview.Filament.engine
 import io.github.sceneview.Filament.transformManager
 import io.github.sceneview.environment.Environment
 import io.github.sceneview.environment.loadEnvironment
-import io.github.sceneview.environment.loadEnvironmentSync
 import io.github.sceneview.gesture.CameraGestureDetector
 import io.github.sceneview.gesture.GestureDetector
 import io.github.sceneview.gesture.NodeMotionEvent
@@ -43,6 +34,7 @@ import io.github.sceneview.light.Light
 import io.github.sceneview.light.build
 import io.github.sceneview.light.destroy
 import io.github.sceneview.light.destroyLight
+import io.github.sceneview.node.CameraNode
 import io.github.sceneview.node.ModelNode
 import io.github.sceneview.node.Node
 import io.github.sceneview.node.NodeParent
@@ -54,8 +46,6 @@ import java.util.concurrent.TimeUnit
 import com.google.android.filament.utils.KTX1Loader as KTXLoader
 
 private const val maxFramesPerSecond = 60
-
-const val defaultIblLocation = "sceneview/environments/indoor_studio/indoor_studio_ibl.ktx"
 
 /**
  * ### A SurfaceView that manages rendering and interactions with the 3D scene.
@@ -78,11 +68,11 @@ open class SceneView @JvmOverloads constructor(
     NodeParent,
     GestureDetector.OnGestureListener by GestureDetector.SimpleOnGestureListener() {
 
-    sealed class FrameRate(val factor: Long) {
-        object Full : FrameRate(1)
-        object Half : FrameRate(2)
-        object Third : FrameRate(3)
-    }
+//    sealed class FrameRate(val factor: Long) {
+//        object Full : FrameRate(1)
+//        object Half : FrameRate(2)
+//        object Third : FrameRate(3)
+//    }
 
     enum class SelectionMode {
         NONE, SINGLE, MULTIPLE;
@@ -95,7 +85,7 @@ open class SceneView @JvmOverloads constructor(
         var allowDeselection = true
     }
 
-    open var frameRate: FrameRate = FrameRate.Full
+//    open var frameRate: FrameRate = FrameRate.Full
 
     val scene: Scene
     val view: View
@@ -150,7 +140,6 @@ open class SceneView @JvmOverloads constructor(
         set(value) {
             view.dithering = value
         }
-
 
     /**
      * ### The main directional light of the scene
@@ -223,17 +212,17 @@ open class SceneView @JvmOverloads constructor(
             scene.skybox = value
         }
 
-    var backgroundColor: Color?
-        get() = renderer.clearOptions.clearColor.toColor()
-        set(value) {
-            renderer.clearOptions = ClearOptions().apply {
-                clear = true
-                isTranslucent = value == null || value.a != 1.0f
-                if (value != null && value.a != 0.0f) {
-                    clearColor = value.toFloatArray()
-                }
-            }
-        }
+//    var backgroundColor: Color?
+//        get() = renderer.clearOptions.clearColor.toColor()
+//        set(value) {
+//            renderer.clearOptions = ClearOptions().apply {
+//                clear = true
+//                isTranslucent = value == null || value.a != 1.0f
+//                if (value != null && value.a != 0.0f) {
+//                    clearColor = value.toFloatArray()
+//                }
+//            }
+//        }
 
     /**
      * ### Set the background to transparent.
@@ -327,7 +316,7 @@ open class SceneView @JvmOverloads constructor(
             context.getActivity()!!
         }
 
-    private val uiHelper = UiHelper(UiHelper.ContextErrorPolicy.DONT_CHECK).apply {
+    val uiHelper = UiHelper(UiHelper.ContextErrorPolicy.DONT_CHECK).apply {
         renderCallback = SurfaceCallback()
         attachTo(this@SceneView)
     }
@@ -376,6 +365,8 @@ open class SceneView @JvmOverloads constructor(
             .build(Manipulator.Mode.ORBIT)
     }
 
+    var isDestroyed = false
+
     private var lastTick: Long = 0
     private val surfaceMirrorer by lazy { SurfaceMirrorer(lifecycle) }
 
@@ -386,14 +377,39 @@ open class SceneView @JvmOverloads constructor(
         scene = engine.createScene()
         view = engine.createView()
         // on mobile, better use lower quality color buffer
-//        view.renderQuality = view.renderQuality.apply {
-//            hdrColorBuffer = View.QualityLevel.MEDIUM
-//        }
-//        // dynamic resolution often helps a lot
+
+        // on mobile, better use lower quality color buffer
+        view.renderQuality = view.renderQuality.apply {
+            hdrColorBuffer = QualityLevel.MEDIUM
+        }
         view.dynamicResolutionOptions = view.dynamicResolutionOptions.apply {
             enabled = false
             quality = QualityLevel.MEDIUM
         }
+        view.setShadowingEnabled(false)
+        // FXAA is pretty cheap and helps a lot
+        view.antiAliasing = View.AntiAliasing.NONE
+        // ambient occlusion is the cheapest effect that adds a lot of quality
+        view.ambientOcclusionOptions = view.ambientOcclusionOptions.apply {
+            enabled = false
+        }
+        // bloom is pretty expensive but adds a fair amount of realism
+        view.bloomOptions = view.bloomOptions.apply {
+            enabled = false
+        }
+//        view.ambientOcclusionOptions = view.ambientOcclusionOptions.apply {
+//            enabled = false
+//        }
+//        view.multiSampleAntiAliasingOptions = view.multiSampleAntiAliasingOptions.apply {
+//            enabled = false
+//        }
+//        view.screenSpaceReflectionsOptions = view.screenSpaceReflectionsOptions.apply {
+//            enabled = false
+//        }
+//        view.depthOfFieldOptions = view.depthOfFieldOptions.apply {
+//            enabled = false
+//        }
+//        view.blendMode = BlendMode.TRANSLUCENT
 //        // MSAA is needed with dynamic resolution MEDIUM
 //        view.multiSampleAntiAliasingOptions = view.multiSampleAntiAliasingOptions.apply {
 //            enabled = true
@@ -430,10 +446,9 @@ open class SceneView @JvmOverloads constructor(
             .direction(0.0f, -1.0f, 0.0f)
             .castShadows(true)
             .build()
-        environment = KTXLoader.loadEnvironmentSync(
-            context, lifecycle,
-            iblKtxFileLocation = defaultIblLocation
-        )
+        skybox = Skybox.Builder()
+            .color(0.0f, 0.0f, 0.0f, 1.0f)
+            .build()
 
         cameraNode.parent = this
     }
@@ -497,10 +512,10 @@ open class SceneView @JvmOverloads constructor(
         val nanoTime = System.nanoTime()
         val tick = nanoTime / (TimeUnit.SECONDS.toNanos(1) / maxFramesPerSecond)
 
-        if (lastTick / frameRate.factor != tick / frameRate.factor) {
-            currentFrameTime = FrameTime(frameTimeNanos, currentFrameTime.nanoseconds)
-            doFrame(currentFrameTime)
-        }
+//        if (lastTick / frameRate.factor != tick / frameRate.factor) {
+        currentFrameTime = FrameTime(frameTimeNanos, currentFrameTime.nanoseconds)
+        doFrame(currentFrameTime)
+//        }
     }
 
     open fun doFrame(frameTime: FrameTime) {
@@ -552,14 +567,14 @@ open class SceneView @JvmOverloads constructor(
     /** @see Scene.removeEntity */
     fun removeLight(@Entity light: Light) = scene.removeEntity(light)
 
-    @Deprecated("Deprecated in Java")
-    override fun setBackgroundDrawable(background: Drawable?) {
-        super.setBackgroundDrawable(background)
-
-        if (holder != null) {
-            updateBackground()
-        }
-    }
+//    @Deprecated("Deprecated in Java")
+//    override fun setBackgroundDrawable(background: Drawable?) {
+//        super.setBackgroundDrawable(background)
+//
+//        if (holder != null) {
+//            updateBackground()
+//        }
+//    }
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(motionEvent: MotionEvent): Boolean {
@@ -679,22 +694,25 @@ open class SceneView @JvmOverloads constructor(
      * Meaning that they are already self destroyed when they receive the `onDestroy()` callback.
      */
     open fun destroy() {
-        runCatching { uiHelper.detach() }
+        if (!isDestroyed) {
+            runCatching { uiHelper.detach() }
 
-        // Use runCatching because they should normally already been destroyed by the lifecycle and
-        // Filament will throw an Exception when destroying them twice.
-        runCatching { cameraNode.destroy() }
-        runCatching { mainLight?.destroyLight() }
-        runCatching { indirectLight?.destroy() }
-        runCatching { skybox?.destroy() }
+            // Use runCatching because they should normally already been destroyed by the lifecycle and
+            // Filament will throw an Exception when destroying them twice.
+            runCatching { cameraNode.destroy() }
+            runCatching { mainLight?.destroyLight() }
+            runCatching { indirectLight?.destroy() }
+            runCatching { skybox?.destroy() }
 
-        runCatching { ResourceManager.getInstance().destroyAllResources() }
+//        runCatching { ResourceManager.getInstance().destroyAllResources() }
 
-        runCatching { engine.destroyRenderer(renderer) }
-        runCatching { engine.destroyView(view) }
-        runCatching { engine.destroyScene(scene) }
+            runCatching { engine.destroyRenderer(renderer) }
+            runCatching { engine.destroyView(view) }
+            runCatching { engine.destroyScene(scene) }
 
-        Filament.release()
+            Filament.release()
+            isDestroyed = true
+        }
     }
 
     override fun getLifecycle() =
@@ -702,15 +720,15 @@ open class SceneView @JvmOverloads constructor(
             sceneLifecycle = it
         }
 
-    private fun updateBackground() {
-        if ((background is ColorDrawable && background.alpha == 255) || skybox != null) {
-            backgroundColor = colorOf(color = (background as? ColorDrawable)?.color ?: BLACK)
-            isTranslucent = false
-        } else {
-            backgroundColor = colorOf(a = 0.0f)
-            isTranslucent = true
-        }
-    }
+//    private fun updateBackground() {
+//        if ((background is ColorDrawable && background.alpha == 255) || skybox != null) {
+//            backgroundColor = colorOf(color = (background as? ColorDrawable)?.color ?: BLACK)
+//            isTranslucent = false
+//        } else {
+//            backgroundColor = colorOf(a = 0.0f)
+//            isTranslucent = true
+//        }
+//    }
 
     inner class SurfaceCallback : UiHelper.RendererCallback {
         override fun onNativeWindowChanged(surface: Surface) {

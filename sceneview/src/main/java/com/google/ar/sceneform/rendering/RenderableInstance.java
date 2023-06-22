@@ -180,7 +180,8 @@ public class RenderableInstance implements AnimatableModel {
                     continue;
                 }
                 //TODO: Used by Filament ModelViewer, see if it's usefull
-                renderableManager.setScreenSpaceContactShadows(renderableInstance, true);
+//                renderableManager.setScreenSpaceContactShadows(renderableInstance, false);
+                renderableManager.setCulling(renderableInstance, true);
 
                 MaterialInstance materialInstance = renderableManager.getMaterialInstanceAt(renderableInstance, 0);
                 materialNames.add(materialInstance.getName());
@@ -312,7 +313,7 @@ public class RenderableInstance implements AnimatableModel {
         RenderableManager renderableManager = Filament.getRenderableManager();
         @EntityInstance int renderableInstance = renderableManager.getInstance(getEntity());
         if (renderableInstance != 0 && renderableManager.hasComponent(renderableInstance)) {
-            renderableManager.setCulling(renderableInstance, isShadowCaster);
+            renderableManager.setCulling(renderableInstance, isCulling);
         }
         int[] entities = getFilamentAsset().getEntities();
         for (int i = 0; i < entities.length; i++) {

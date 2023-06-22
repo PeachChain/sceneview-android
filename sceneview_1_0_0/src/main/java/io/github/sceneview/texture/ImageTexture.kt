@@ -40,7 +40,8 @@ class ImageTexture private constructor(val bitmap: Bitmap, texture: Texture) {
                         // channel. Pre-multiplication is the default behavior, so we need to turn it
                         // off here
                         inPremultiplied = type == TextureType.COLOR
-                    })
+                    }),
+                type = type
             )
         }
 
@@ -61,7 +62,8 @@ class ImageTexture private constructor(val bitmap: Bitmap, texture: Texture) {
                         // channel. Pre-multiplication is the default behavior, so we need to turn it
                         // off here
                         inPremultiplied = type == TextureType.COLOR
-                    })
+                    }),
+                type = type
             )
         }
 
@@ -78,7 +80,8 @@ class ImageTexture private constructor(val bitmap: Bitmap, texture: Texture) {
                     // channel. Pre-multiplication is the default behavior, so we need to turn it
                     // off here
                     inPremultiplied = type == TextureType.COLOR
-                })
+                }),
+            type = type
         )
 
         override fun build(engine: Engine): Texture = super.build(engine).apply {
