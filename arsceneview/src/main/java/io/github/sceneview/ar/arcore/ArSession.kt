@@ -3,20 +3,21 @@ package io.github.sceneview.ar.arcore
 import android.content.Context
 import android.view.Display
 import android.view.WindowManager
-import androidx.lifecycle.LifecycleOwner
-import com.google.ar.core.*
-import io.github.sceneview.ar.ArSceneLifecycle
-import io.github.sceneview.ar.ArSceneLifecycleObserver
+import com.google.ar.core.CameraConfig
+import com.google.ar.core.Config
+import com.google.ar.core.Session
 import io.github.sceneview.ar.defaultApproximateDistance
 import io.github.sceneview.utils.FrameTime
 
 class ArSession(
-    val lifecycle: ArSceneLifecycle,
-    features: Set<Feature> = setOf()
-) : Session(lifecycle.context, features), ArSceneLifecycleObserver {
+    context: Context,
+    features: Set<Feature> = setOf(),
+    val onResumed: (session: ArSession) -> Unit,
+    val onConfigChanged: (session: ArSession, config: Config) -> Unit
+) : Session(context, features) {
 
     val display: Display by lazy {
-        (lifecycle.context.getSystemService(Context.WINDOW_SERVICE) as WindowManager).getDefaultDisplay()
+        (context.getSystemService(Context.WINDOW_SERVICE) as WindowManager).getDefaultDisplay()
     }
 
     // We use device display sizes by default cause the onSurfaceChanged may be called after the
@@ -52,16 +53,6 @@ class ArSession(
     var currentFrame: ArFrame? = null
         private set
 
-    var allTrackables: List<Trackable> = listOf()
-
-    init {
-        lifecycle.addObserver(this)
-    }
-
-    override fun onResume(owner: LifecycleOwner) {
-        resume()
-    }
-
     override fun resume() {
         isResumed = true
         super.resume()
@@ -70,11 +61,7 @@ class ArSession(
         // the ArCore-Session if for example the permission Dialog is shown on the screen.
         // If we remove this part, the camera is flickering if returned from the permission Dialog.
         setDisplayGeometry(displayRotation, displayWidth, displayHeight)
-        lifecycle.dispatchEvent<ArSceneLifecycleObserver> { onArSessionResumed(this@ArSession) }
-    }
-
-    override fun onPause(owner: LifecycleOwner) {
-        pause()
+        onResumed(this)
     }
 
     override fun pause() {
@@ -83,22 +70,13 @@ class ArSession(
     }
 
     /**
-     * ### Explicitly close the ARCore session to release native resources.
+     * Explicitly close the ARCore session to release native resources.
      *
      * Review the API reference for important considerations before calling close() in apps with
      * more complicated lifecycle requirements: [Session.close]
      */
-    override fun onDestroy(owner: LifecycleOwner) {
+    fun destroy() {
         close()
-        super.onDestroy(owner)
-    }
-
-    override fun onSurfaceChanged(width: Int, height: Int) {
-        setDisplayGeometry(display.rotation, width, height)
-    }
-
-    override fun onArFrame(arFrame: ArFrame) {
-        allTrackables = getAllTrackables(Trackable::class.java).toList()
     }
 
     fun update(frameTime: FrameTime): ArFrame? {
@@ -148,9 +126,8 @@ class ArSession(
             }
             hasAugmentedImageDatabase = (augmentedImageDatabase?.numImages ?: 0) > 0
         })
-        lifecycle.dispatchEvent<ArSceneLifecycleObserver> {
-            onArSessionConfigChanged(this@ArSession, this@ArSession.config)
-        }
+
+        onConfigChanged(this@ArSession, this@ArSession.config)
     }
 
     var focusMode: Config.FocusMode
@@ -240,73 +217,6 @@ class ArSession(
                 }
             }
         }
-
-    /**
-     * ### Retrieve the session tracked Planes
-     */
-    val allPlanes: List<Plane> get() = allTrackables.mapNotNull { it as? Plane }
-
-    /**
-     * ### Retrieve if the session has already tracked a Plane
-     *
-     * @return true if the session has tracked at least one Plane
-     */
-    val hasTrackedPlane: Boolean
-        get() = allPlanes.filter {
-            it.trackingState in listOf(TrackingState.TRACKING, TrackingState.PAUSED)
-        }.isNotEmpty()
-
-    /**
-     * ### Retrieve if the session frame is currently tracking a Plane
-     *
-     * @return true if the session frame is fully tracking at least one Plane
-     */
-    val isTrackingPlane: Boolean get() = currentFrame?.isTrackingPlane == true
-
-    /**
-     * ### Retrieve the session tracked Augmented Images
-     */
-    val allAugmentedImages: List<AugmentedImage> get() = allTrackables.mapNotNull { it as? AugmentedImage }
-
-    /**
-     * ### Retrieve if the session frame is currently tracking an Augmented Image
-     *
-     * @return true if the session frame is fully tracking at least one Augmented Image
-     */
-    val isTrackingAugmentedImage: Boolean get() = currentFrame?.isTrackingAugmentedImage == true
-
-    /**
-     * ### Retrieve if the session has already tracked an Augmented Image
-     *
-     * @return true if the session has tracked at least one Augmented Image
-     */
-    val hasTrackedAugmentedImage: Boolean
-        get() = allAugmentedImages.filter {
-            it.trackingMethod == AugmentedImage.TrackingMethod.FULL_TRACKING &&
-                    it.trackingState in listOf(TrackingState.TRACKING, TrackingState.PAUSED)
-        }.isNotEmpty()
-
-    /**
-     * ### Retrieve the session tracked Augmented Faces
-     */
-    val allAugmentedFaces: List<AugmentedFace> get() = allTrackables.mapNotNull { it as? AugmentedFace }
-
-    /**
-     * ### Retrieve if the session frame is currently tracking an Augmented Face
-     *
-     * @return true if the session frame is fully tracking at least one Augmented Face
-     */
-    val isTrackingAugmentedFace: Boolean get() = currentFrame?.isTrackingAugmentedFace == true
-
-    /**
-     * ### Retrieve if the session has already tracked an Augmented Face
-     *
-     * @return true if the session has tracked at least one Augmented Face
-     */
-    val hasTrackedAugmentedFace: Boolean
-        get() = allAugmentedFaces.filter {
-            it.trackingState in listOf(TrackingState.TRACKING, TrackingState.PAUSED)
-        }.isNotEmpty()
 }
 
 var Config.planeFindingEnabled

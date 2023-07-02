@@ -2,9 +2,10 @@ package io.github.sceneview.ar.node
 
 import com.google.android.filament.Engine
 import com.google.ar.core.Camera
-import com.google.ar.core.TrackingState
+import dev.romainguy.kotlin.math.degrees
 import io.github.sceneview.ar.arcore.transform
-import io.github.sceneview.node.CameraNode
+import io.github.sceneview.math.toTransform
+import io.github.sceneview.node.CameraNode2
 import kotlin.math.atan
 
 /**
@@ -27,12 +28,12 @@ import kotlin.math.atan
  * camera, assign a collision shape to the camera, or add children to the camera. Disabling the
  * camera turns off rendering.
  */
-class ArCameraNode(engine: Engine) : CameraNode(engine, false) {
+class ArCameraNode2(engine: Engine) : CameraNode2(engine, false) {
 
     override var verticalFovDegrees: Float
         get() {
-            val fovRadians = 2.0 * atan(1.0 / projectionMatrix.data[5])
-            return Math.toDegrees(fovRadians).toFloat()
+            val fovRadians = 2.0f * atan(1.0f / projectionTransform.y.x)
+            return degrees(fovRadians)
         }
         set(_) {}
 
@@ -43,14 +44,22 @@ class ArCameraNode(engine: Engine) : CameraNode(engine, false) {
      */
     fun updateTrackedPose(camera: Camera) {
         // Update the projection matrix.
-        camera.getProjectionMatrix(projectionMatrix.data, 0, nearClipPlane, farClipPlane)
+        projectionTransform = FloatArray(16).apply {
+            camera.getProjectionMatrix(
+                this, 0,
+                nearClipPlane, farClipPlane
+            )
+        }.toTransform()
 
         // Update the view matrix.
         camera.getViewMatrix(viewMatrix.data, 0)
 
         // Update the node's transformation properties to match the tracked pose.
-        if (camera.trackingState == TrackingState.TRACKING) {
-            transform = camera.displayOrientedPose.transform
+//        if (camera.trackingState == TrackingState.TRACKING) {
+        val cameraTransform = camera.displayOrientedPose.transform
+        if (transform != cameraTransform) {
+            transform = cameraTransform
         }
+//        }
     }
 }
