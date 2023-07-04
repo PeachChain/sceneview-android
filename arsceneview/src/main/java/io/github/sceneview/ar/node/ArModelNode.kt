@@ -1,5 +1,6 @@
 package io.github.sceneview.ar.node
 
+import com.google.android.filament.Engine
 import com.google.ar.core.*
 import com.google.ar.core.Config.PlaneFindingMode
 import io.github.sceneview.ar.ArSceneView
@@ -8,6 +9,7 @@ import io.github.sceneview.ar.arcore.isTracking
 import io.github.sceneview.gesture.MoveGestureDetector
 import io.github.sceneview.gesture.NodeMotionEvent
 import io.github.sceneview.math.Position
+import io.github.sceneview.math.Transform
 import io.github.sceneview.model.ModelInstance
 
 /**
@@ -22,7 +24,7 @@ import io.github.sceneview.model.ModelInstance
  * - [createAnchor] in order to extract a fixed/anchored copy of the actual node.
  * This node will continue following the [com.google.ar.core.Camera]
  */
-open class ArModelNode : ArNode {
+open class ArModelNode(engine: Engine) : ArNode(engine) {
 
     /**
      * ### How/where does the node is positioned in the real world
@@ -35,16 +37,6 @@ open class ArModelNode : ArNode {
      * The [hitTest], [pose] and [anchor] will be influenced by this choice.
      */
     var placementMode: PlacementMode = DEFAULT_PLACEMENT_MODE
-        set(value) {
-            field = value
-            doOnAttachedToScene { sceneView ->
-                (sceneView as? ArSceneView)?.apply {
-                    planeFindingMode = value.planeFindingMode
-                    depthEnabled = value.depthEnabled
-                    instantPlacementEnabled = value.instantPlacementEnabled
-                }
-            }
-        }
 
     /**
      * ### The node camera/screen/view position where the hit will be made to find an AR position
@@ -93,7 +85,7 @@ open class ArModelNode : ArNode {
      *
      * @see followHitPosition
      */
-    var hitPosition: Position = DEFAULT_HIT_POSITION
+    var screenPosition: Position = DEFAULT_SCREEN_POSITION
         set(value) {
             field = value
             position = Position(value)
@@ -105,13 +97,13 @@ open class ArModelNode : ArNode {
      * Controls if an unanchored node should be moved together with the camera.
      *
      * The node [position] is updated with the realtime ARCore [pose] at the corresponding
-     * [hitPosition] until it is anchored ([isAnchored]) or until this this value is set to false.
+     * [screenPosition] until it is anchored ([isAnchored]) or until this this value is set to false.
      *
      * - While there is no AR tracking information available, the node is following the camera moves
      * so it stays at this camera/screen relative position but without adjusting its position and
      * orientation to the real world
      *
-     * - Then ARCore will try to find the real world position of the node at the [hitPosition] by
+     * - Then ARCore will try to find the real world position of the node at the [screenPosition] by
      * looking at its [hitTest] on each [onArFrame].
      *
      * - In case of instant placement disabled, the z position (distance from the camera) will be
@@ -131,7 +123,7 @@ open class ArModelNode : ArNode {
      * - `false` The pose of an unanchored node is not updated. This is used e.g. while moving a
      *  node using gestures.
      *
-     * @see hitPosition
+     * @see screenPosition
      */
     var followHitPosition: Boolean = true
 
@@ -157,6 +149,13 @@ open class ArModelNode : ArNode {
             }
         }
 
+    /**
+     * ### Move smoothly/slowly when there is a pose (AR position and rotation) update
+     *
+     * Use [smoothSpeed] to adjust the position and rotation change smoothness level
+     */
+    var isSmoothPoseEnable = true
+
     override var isPositionEditable: Boolean = true
 
     var lastTrackingHitResult: HitResult? = null
@@ -172,11 +171,21 @@ open class ArModelNode : ArNode {
             value?.let { onHitResult?.invoke(this, it) }
         }
 
+    override var poseTransform: Transform? = super.poseTransform
+        set(value) {
+            if (field != value) {
+                field = value
+                if (value != null) {
+                    transform(value, smooth = isSmoothPoseEnable && !isAnchored)
+                }
+            }
+        }
+
     /**
      * ### Adjust the max screen [ArFrame.hitTest] number per seconds
      *
      * When this node is not anchored and [followHitPosition] is set to true, the node will
-     * constantly try to find its place in real world. Following the [hitPosition] on the
+     * constantly try to find its place in real world. Following the [screenPosition] on the
      * screen.
      *
      * Decrease if you don't need a very precise position update and want to reduce frame
@@ -203,13 +212,14 @@ open class ArModelNode : ArNode {
      * @param instantAnchor See [instantAnchor]
      */
     constructor(
+        engine: Engine,
         placementMode: PlacementMode = DEFAULT_PLACEMENT_MODE,
-        hitPosition: Position = DEFAULT_HIT_POSITION,
+        screenPosition: Position = DEFAULT_SCREEN_POSITION,
         followHitPosition: Boolean = true,
         instantAnchor: Boolean = false
-    ) : super() {
+    ) : this(engine) {
         this.placementMode = placementMode
-        this.hitPosition = hitPosition
+        this.screenPosition = screenPosition
         this.followHitPosition = followHitPosition
         this.instantAnchor = instantAnchor
     }
@@ -217,7 +227,7 @@ open class ArModelNode : ArNode {
     /**
      * TODO : Doc
      */
-    constructor(hitResult: HitResult) : this() {
+    constructor(engine: Engine, hitResult: HitResult) : this(engine) {
         this.anchor = hitResult.createAnchor()
     }
 
@@ -242,13 +252,14 @@ open class ArModelNode : ArNode {
      * @see loadModelGlb
      */
     constructor(
+        engine: Engine,
         modelGlbFileLocation: String,
         autoAnimate: Boolean = true,
         scaleToUnits: Float? = null,
         centerOrigin: Position? = null,
         onError: ((error: Exception) -> Unit)? = null,
         onLoaded: ((modelInstance: ModelInstance) -> Unit)? = null
-    ) : this() {
+    ) : this(engine) {
         loadModelGlbAsync(
             modelGlbFileLocation,
             autoAnimate,
@@ -274,16 +285,17 @@ open class ArModelNode : ArNode {
      * - ...
      */
     constructor(
+        engine: Engine,
         modelInstance: ModelInstance,
         autoAnimate: Boolean = true,
         scaleToUnits: Float? = null,
         centerOrigin: Position? = null
-    ) : this() {
+    ) : this(engine) {
         setModelInstance(modelInstance, autoAnimate, scaleToUnits, centerOrigin)
     }
 
-    override fun onArFrame(arFrame: ArFrame) {
-        super.onArFrame(arFrame)
+    override fun onArFrame(arFrame: ArFrame, isCameraTracking: Boolean) {
+        super.onArFrame(arFrame, isCameraTracking)
 
         if (!isAnchored) {
             // Try to find an anchor if none has been found
@@ -341,9 +353,9 @@ open class ArModelNode : ArNode {
      * @param frame the [ArFrame] from where we take the [HitResult]
      * By default the latest session frame if any exist
      * @param xPx x view coordinate in pixels
-     * By default the [cameraPosition.x][hitPosition] of this Node is used
+     * By default the [cameraPosition.x][screenPosition] of this Node is used
      * @param yPx y view coordinate in pixels
-     * By default the [cameraPosition.y][hitPosition] of this Node is used
+     * By default the [cameraPosition.y][screenPosition] of this Node is used
      *
      * @return the hitResult or null if no info is retrieved
      *
@@ -353,7 +365,7 @@ open class ArModelNode : ArNode {
         plane: Boolean = placementMode.planeEnabled,
         depth: Boolean = placementMode.depthEnabled,
         instant: Boolean = placementMode.instantPlacementEnabled,
-    ): HitResult? = sceneView?.hitTest(hitPosition, plane, depth, instant)
+    ): HitResult? = sceneView?.hitTest(screenPosition, plane, depth, instant)
 
     /**
      * ### Anchor this node to make it fixed at the actual position and orientation is the world
@@ -390,19 +402,19 @@ open class ArModelNode : ArNode {
         return hitResult?.createAnchor()
     }
 
-    override fun clone() = copy(ArModelNode())
+    override fun clone() = copy(ArModelNode(engine))
 
-    fun copy(toNode: ArModelNode = ArModelNode()) = toNode.apply {
+    fun copy(toNode: ArModelNode = ArModelNode(engine)) = toNode.apply {
         super.copy(toNode)
 
         placementMode = this@ArModelNode.placementMode
-        hitPosition = this@ArModelNode.hitPosition
+        screenPosition = this@ArModelNode.screenPosition
     }
 
     companion object {
         val DEFAULT_PLACEMENT_MODE = PlacementMode.BEST_AVAILABLE
         val DEFAULT_PLACEMENT_DISTANCE = 2.0f
-        val DEFAULT_HIT_POSITION =
+        val DEFAULT_SCREEN_POSITION =
             Position(0.0f, 0.0f, -DEFAULT_PLACEMENT_DISTANCE)
     }
 }

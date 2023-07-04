@@ -1,15 +1,20 @@
 package io.github.sceneview.node
 
 import android.content.Context
-import androidx.lifecycle.coroutineScope
+import com.google.android.filament.Engine
+import com.google.android.filament.Entity
+import com.google.android.filament.EntityInstance
+import com.google.android.filament.TransformManager
 import com.google.android.filament.gltfio.Animator
 import com.google.android.filament.gltfio.FilamentAsset
+import com.google.ar.sceneform.math.Matrix
 import dev.romainguy.kotlin.math.*
 import io.github.sceneview.SceneView
 import io.github.sceneview.gesture.NodeMotionEvent
 import io.github.sceneview.math.*
 import io.github.sceneview.model.*
 import io.github.sceneview.renderable.Renderable
+import io.github.sceneview.transform.*
 import io.github.sceneview.utils.FrameTime
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -23,12 +28,31 @@ import kotlinx.coroutines.withContext
  * another node, or the [SceneView]
  * .
  */
-open class ModelNode : RenderableNode {
+open class ModelNode(engine: Engine) : RenderableNode(engine) {
 
     data class PlayingAnimation(val startTime: Long = System.nanoTime(), val loop: Boolean = true)
 
+    open var modelRootEntity: Int? = null
+        @Entity
+        set(value) {
+            modelRootInstance?.let {
+                if (transformManager.getParentOrNull(it) == transformEntity) {
+                    transformManager.setParent(it, null)
+                }
+            }
+            field = value
+            modelRootInstance?.let {
+                transformManager.setParent(it, transformInstance)
+            }
+            modelTransform = _modelTransform
+        }
+
+    val modelRootInstance: Int?
+        @EntityInstance
+        get() = modelRootEntity?.let { transformManager.getInstance(it) }
+
     /**
-     * ### The node model origin (center)
+     * The node model origin (center)
      *
      * A node's content origin is the transformation between its coordinate space and that used by
      * its [position]. The default origin is zero vector, specifying that the node's position
@@ -40,15 +64,25 @@ open class ModelNode : RenderableNode {
      * containing a sphere geometry relative to where the sphere would rest on a floor instead of
      * relative to its center.
      */
-    open var modelPosition = DEFAULT_MODEL_POSITION
+    open var modelPosition: Position
+        get() = modelTransform.position
+        set(value) {
+            modelTransform = Transform(value, modelQuaternion, modelScale)
+        }
 
     /**
-     * TODO: Doc
+     * Model quaternion rotation.
+     *
+     * @see modelTransform
      */
-    var modelQuaternion: Quaternion = DEFAULT_MODEL_QUATERNION
+    var modelQuaternion: Quaternion
+        get() = modelTransform.quaternion
+        set(value) {
+            modelTransform = Transform(modelPosition, value, modelScale)
+        }
 
     /**
-     * ### The node model orientation
+     * The node model orientation
      *
      * A node's content origin is the transformation between its coordinate space and that used by
      * its [quaternion]. The default origin is zero vector, specifying that the node's orientation
@@ -69,22 +103,35 @@ open class ModelNode : RenderableNode {
         }
 
     /**
-     * ### The node model scale
+     * The model scale
      */
-    open var modelScale = DEFAULT_MODEL_SCALE
-
-    open var modelTransform: Transform = Transform(modelPosition, modelQuaternion, modelScale)
-        get() = field.takeIf {
-            it.position == modelPosition && it.quaternion == modelQuaternion && it.scale == modelScale
-        } ?: Transform(modelPosition, modelQuaternion, modelScale)
+    open var modelScale: Scale
+        get() = modelTransform.scale
         set(value) {
-            if (field != value) {
-                field = value
-                modelPosition = value.position
-                modelQuaternion = value.quaternion
-                modelScale = value.scale
+            modelTransform = Transform(modelPosition, modelQuaternion, value)
+        }
+
+    private var _modelTransform = Transform()
+
+    /**
+     * Local transform of the model transform component (i.e. relative to the parent).
+     *
+     * @see TransformManager.getTransform
+     * @see TransformManager.setTransform
+     */
+    var modelTransform: Transform
+        get() = _modelTransform
+        set(value) {
+            _modelTransform = value
+            modelRootInstance?.let {
+                transformManager.setTransform(it, value)
             }
         }
+
+    val modelWorldTransform: Transform
+        get() = modelRootInstance?.let {
+            transformManager.getWorldTransform(it)
+        } ?: worldTransform
 
     /**
      * The source [Model] ([FilamentAsset]) from the [ModelInstance] [ModelInstance]
@@ -103,6 +150,7 @@ open class ModelNode : RenderableNode {
 //                field?.destroy()
                 field = value
                 animator = value?.animator
+                modelRootEntity = value?.root
                 sceneEntities = value?.entities ?: intArrayOf()
 
                 onModelChanged(modelInstance)
@@ -116,9 +164,6 @@ open class ModelNode : RenderableNode {
     var onModelChanged = mutableListOf<() -> Unit>()
     var onModelError: ((exception: Exception) -> Unit)? = null
 
-    override val transformEntity: Int?
-        get() = modelInstance?.root
-
     override val renderables: List<Renderable>
         get() = modelInstance?.renderables?.toList() ?: listOf()
 
@@ -128,41 +173,11 @@ open class ModelNode : RenderableNode {
     val renderableNames: List<String>
         get() = modelInstance?.model?.renderableNames?.toList() ?: listOf()
 
-    override val worldTransform: Transform
-        get() = super.worldTransform * modelTransform
-
     private var loadedModel: Model? = null
-
-    /**
-     * ### Construct a [ModelNode] with it Position, Rotation and Scale
-     *
-     * @param position See [Node.position]
-     * @param rotation See [Node.rotation]
-     * @param scale See [Node.scale]
-     */
-    @JvmOverloads
-    constructor(
-        position: Position = DEFAULT_POSITION,
-        rotation: Rotation = DEFAULT_ROTATION,
-        scale: Scale = DEFAULT_SCALE
-    ) : super() {
-        this.position = position
-        this.rotation = rotation
-        this.scale = scale
-    }
 
     /**
      * ### Create the Node and load a monolithic binary glTF and add it to the Node
      *
-     * @param lifecycle Provide your lifecycle in order to load your model instantly and to destroy
-     * it (and its resources) when the lifecycle goes to destroy state.
-     * Passing null means the model loading will be done when the Node is added to the SceneView and
-     * the destroy will be done when the SceneView is detached.
-     * Otherwise the model loading is done when the parent [SceneView] is attached because it needs
-     * a [kotlinx.coroutines.CoroutineScope] to load and resources will be destroyed when the
-     * [SceneView] is.
-     * You are responsible of manually destroy this [Node] only if you don't provide lifecycle and
-     * the node is never attached to a [SceneView]
      * @param modelGlbFileLocation the model glb/gltf file location:
      * ```
      * - A relative asset file location *models/mymodel.glb*
@@ -189,13 +204,14 @@ open class ModelNode : RenderableNode {
      * @see loadModel
      */
     constructor(
+        engine: Engine,
         modelGlbFileLocation: String,
         autoAnimate: Boolean = true,
         scaleUnits: Float? = null,
         centerOrigin: Position? = null,
         onError: ((error: Exception) -> Unit)? = null,
         onLoaded: ((modelInstance: ModelInstance) -> Unit)? = null
-    ) : this() {
+    ) : this(engine) {
         loadModelGlbAsync(
             modelGlbFileLocation,
             autoAnimate,
@@ -221,18 +237,19 @@ open class ModelNode : RenderableNode {
      * - ...
      */
     constructor(
+        engine: Engine,
         modelInstance: ModelInstance,
         autoAnimate: Boolean = true,
         scaleToUnits: Float? = null,
         centerOrigin: Position? = null
-    ) : this() {
+    ) : this(engine) {
         setModelInstance(modelInstance, autoAnimate, scaleToUnits, centerOrigin)
     }
 
     override fun onFrame(frameTime: FrameTime) {
         super.onFrame(frameTime)
 
-        modelInstance?.model?.let { it.popRenderable() }
+        model?.let { it.popRenderable() }
 
         animator?.apply {
             playingAnimations.forEach { (index, animation) ->
@@ -287,15 +304,8 @@ open class ModelNode : RenderableNode {
     }
 
     /**
-     * ### Loads a monolithic binary glTF and add it to the Node
+     * Loads a monolithic binary glTF and add it to the Node
      *
-     * @param lifecycle Provide your lifecycle in order to load your model instantly and to destroy
-     * it (and its resources) when the lifecycle goes to destroy state.
-     * Otherwise the model loading is done when the parent [SceneView] is attached because it needs
-     * a [kotlinx.coroutines.CoroutineScope] to load and resources will be destroyed when the
-     * [SceneView] is.
-     * You are responsible of manually destroy this [Node] only if you don't provide lifecycle and
-     * the node is never attached to a [SceneView]
      * @param glbFileLocation the glb file location:
      * - A relative asset file location *models/mymodel.glb*
      * - An android resource from the res folder *context.getResourceUri(R.raw.mymodel)*
@@ -335,15 +345,8 @@ open class ModelNode : RenderableNode {
     }
 
     /**
-     * ### Loads a monolithic binary glTF and add it to the Node
+     * Loads a monolithic binary glTF and add it to the Node
      *
-     * @param lifecycle Provide your lifecycle in order to load your model instantly and to destroy
-     * it (and its resources) when the lifecycle goes to destroy state.
-     * Otherwise the model loading is done when the parent [SceneView] is attached because it needs
-     * a [kotlinx.coroutines.CoroutineScope] to load and resources will be destroyed when the
-     * [SceneView] is.
-     * You are responsible of manually destroy this [Node] only if you don't provide lifecycle and
-     * the node is never attached to a [SceneView]
      * @param glbFileLocation the glb file location:
      * - A relative asset file location *models/mymodel.glb*
      * - An android resource from the res folder *context.getResourceUri(R.raw.mymodel)*
@@ -368,7 +371,7 @@ open class ModelNode : RenderableNode {
         onLoaded: ((modelInstance: ModelInstance) -> Unit)? = null
     ): ModelNode {
         doOnAttachedToScene { sceneView ->
-            sceneView.lifecycle.coroutineScope.launchWhenCreated {
+            sceneView.coroutineScope?.launchWhenCreated {
                 loadModelGlb(
                     sceneView.context,
                     glbFileLocation,
@@ -385,7 +388,7 @@ open class ModelNode : RenderableNode {
     }
 
     /**
-     * ### Loads a monolithic binary glTF and add it to the Node
+     * Loads a monolithic binary glTF and add it to the Node
      *
      * @param gltfFileLocation the gltf file location:
      * - A relative asset file location *models/mymodel.gltf*
@@ -430,15 +433,8 @@ open class ModelNode : RenderableNode {
     }
 
     /**
-     * ### Loads a monolithic binary glTF and add it to the Node
+     * Loads a monolithic binary glTF and add it to the Node
      *
-     * @param lifecycle Provide your lifecycle in order to load your model instantly and to destroy
-     * it (and its resources) when the lifecycle goes to destroy state.
-     * Otherwise the model loading is done when the parent [SceneView] is attached because it needs
-     * a [kotlinx.coroutines.CoroutineScope] to load and resources will be destroyed when the
-     * [SceneView] is.
-     * You are responsible of manually destroy this [Node] only if you don't provide lifecycle and
-     * the node is never attached to a [SceneView]
      * @param gltfFileLocation the gltf file location:
      * - A relative asset file location *models/mymodel.gltf*
      * - An android resource from the res folder *context.getResourceUri(R.raw.mymodel)*
@@ -467,7 +463,7 @@ open class ModelNode : RenderableNode {
         onLoaded: ((model: Model) -> Unit)? = null
     ): ModelNode {
         doOnAttachedToScene { sceneView ->
-            sceneView.lifecycle.coroutineScope.launchWhenCreated {
+            sceneView.coroutineScope?.launchWhenCreated {
                 loadModelGltf(
                     context,
                     gltfFileLocation,
@@ -573,23 +569,20 @@ open class ModelNode : RenderableNode {
         animator?.getAnimationIndex(animationName)?.let { stopAnimation(it) }
     }
 
+    override fun getTransformationMatrix(): Matrix {
+        return Matrix(modelWorldTransform.toColumnsFloatArray())
+    }
+
     /** ### Detach and destroy the node */
     override fun destroy() {
         loadedModel?.destroy()
         super.destroy()
     }
 
-    override fun clone() = copy(ModelNode())
+    override fun clone() = copy(ModelNode(engine))
 
-    open fun copy(toNode: ModelNode = ModelNode()): ModelNode = toNode.apply {
+    open fun copy(toNode: ModelNode = ModelNode(engine)): ModelNode = toNode.apply {
         super.copy(toNode)
         setModelInstance(this@ModelNode.modelInstance)
-    }
-
-    companion object {
-        val DEFAULT_MODEL_POSITION = Position(x = 0.0f, y = 0.0f, z = 0.0f)
-        val DEFAULT_MODEL_QUATERNION = Quaternion()
-        val DEFAULT_MODEL_ROTATION = DEFAULT_MODEL_QUATERNION.toEulerAngles()
-        val DEFAULT_MODEL_SCALE = Scale(1.0f)
     }
 }

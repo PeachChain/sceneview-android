@@ -3,16 +3,16 @@ package io.github.sceneview.ar
 import android.content.Context
 import android.util.AttributeSet
 import android.view.MotionEvent
+import androidx.lifecycle.LifecycleOwner
+import com.google.android.filament.Engine
 import com.google.android.filament.IndirectLight
 import com.google.ar.core.*
 import com.google.ar.core.CameraConfig.FacingDirection
-import io.github.sceneview.SceneLifecycle
-import io.github.sceneview.SceneLifecycleObserver
-import io.github.sceneview.SceneLifecycleOwner
-import io.github.sceneview.SceneView
+import io.github.sceneview.*
 import io.github.sceneview.ar.arcore.*
 import io.github.sceneview.ar.camera.ArCameraStream
 import io.github.sceneview.ar.node.ArCameraNode
+import io.github.sceneview.ar.node.ArNode
 import io.github.sceneview.ar.scene.PlaneRenderer
 import io.github.sceneview.environment.Environment
 import io.github.sceneview.light.Light
@@ -32,17 +32,26 @@ open class ArSceneView @JvmOverloads constructor(
     attrs: AttributeSet? = null,
     defStyleAttr: Int = 0,
     defStyleRes: Int = 0,
-    sessionFeatures: Set<Session.Feature> = setOf(),
-    override val cameraNode: ArCameraNode = ArCameraNode(),
+    engine: Engine = Filament.retain(),
+    val sessionFeatures: Set<Session.Feature> = setOf(),
+    override val cameraNode: ArCameraNode = ArCameraNode(engine),
 ) : SceneView(
     context,
     attrs,
     defStyleAttr,
     defStyleRes,
+    engine,
     cameraNode
-), ArSceneLifecycleOwner, ArSceneLifecycleObserver {
+) {
 
-    override val arCore = ARCore(activity, lifecycle, sessionFeatures)
+    open val arCore = ARCore(
+        onSessionCreated = ::onArSessionCreated,
+        onSessionResumed = ::onArSessionResumed,
+        onArSessionFailed = ::onArSessionFailed,
+        onSessionConfigChanged = ::onArSessionConfigChanged,
+    )
+
+    val arSession get() = arCore.session
 
 //    override var frameRate: FrameRate = FrameRate.Half
 
@@ -214,7 +223,7 @@ open class ArSceneView @JvmOverloads constructor(
      * - Environment handles a reflections, indirect lighting and skybox.
      * - ARCore will estimate the direction, the intensity and the color of the light
      */
-    var lightEstimator: LightEstimator? = LightEstimator()
+    var lightEstimator: LightEstimator? = LightEstimator(engine)
 
     var mainLightEstimated: Light? = null
         private set(value) {
@@ -247,6 +256,7 @@ open class ArSceneView @JvmOverloads constructor(
             }
         }
 
+    private var _onArSessionCreated = mutableListOf<(session: ArSession) -> Unit>()
     var onArSessionCreated: ((session: ArSession) -> Unit)? = null
 
     /**
@@ -313,19 +323,31 @@ open class ArSceneView @JvmOverloads constructor(
     override val cameraGestureDetector = null
     override val cameraManipulator = null
 
-    override fun getLifecycle() =
-        (sceneLifecycle ?: ArSceneLifecycle(this).also {
-            sceneLifecycle = it
-        }) as ArSceneLifecycle
+    override fun onCreate(owner: LifecycleOwner) {
+        super.onCreate(owner)
+        arCore.create(context, activity, sessionFeatures)
+    }
 
-    override fun onArSessionCreated(session: ArSession) {
-        super.onArSessionCreated(session)
+    override fun onResume(owner: LifecycleOwner) {
+        super.onResume(owner)
+        arCore.resume(context, activity)
+    }
 
+    override fun onPause(owner: LifecycleOwner) {
+        super.onPause(owner)
+        arCore.pause()
+    }
+
+    override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
+        arSession?.setDisplayGeometry(display.rotation, width, height)
+    }
+
+    fun onArSessionCreated(session: ArSession) {
         session.setCameraTextureNames(arCameraStream.cameraTextureIds)
 
         session.configure { config ->
             // getting ar frame doesn't block and gives last frame
-//            config.updateMode = Config.UpdateMode.LATEST_CAMERA_IMAGE
+            config.updateMode = Config.UpdateMode.LATEST_CAMERA_IMAGE
             // FocusMode must be changed after the session resume to work
             // config.focusMode = focusMode
             config.planeFindingMode = _planeFindingMode
@@ -338,18 +360,15 @@ open class ArSceneView @JvmOverloads constructor(
 
         addEntity(arCameraStream.renderable)
 
+        _onArSessionCreated.toList().forEach { it(session) }
         onArSessionCreated?.invoke(session)
     }
 
-    override fun onArSessionFailed(exception: Exception) {
-        super.onArSessionFailed(exception)
-
+    fun onArSessionFailed(exception: Exception) {
         onArSessionFailed?.invoke(exception)
     }
 
-    override fun onArSessionResumed(session: ArSession) {
-        super.onArSessionResumed(session)
-
+    fun onArSessionResumed(session: ArSession) {
         session.configure { config ->
             // FocusMode must be changed after the session resume to work
             config.focusMode = _focusMode
@@ -358,9 +377,7 @@ open class ArSceneView @JvmOverloads constructor(
         onArSessionResumed?.invoke(session)
     }
 
-    override fun onArSessionConfigChanged(session: ArSession, config: Config) {
-        super.onArSessionConfigChanged(session, config)
-
+    fun onArSessionConfigChanged(session: ArSession, config: Config) {
         // Feature config, therefore facing direction, can only be configured once per session.
         isFrontFaceWindingInverted = session.cameraConfig.facingDirection == FacingDirection.FRONT
 
@@ -395,15 +412,17 @@ open class ArSceneView @JvmOverloads constructor(
      */
     protected open fun doArFrame(arFrame: ArFrame) {
         val camera = arFrame.camera
+        val isCameraTracking = camera.isTracking
 
         // Keep the screen unlocked while tracking, but allow it to lock when tracking stops.
         // You will say thanks when still have battery after a long day debugging an AR app.
         // ...and it's better for your users
-        activity.setKeepScreenOn(camera.isTracking)
-
-        cameraNode.updateTrackedPose(camera)
+        activity?.setKeepScreenOn(isCameraTracking)
 
         arCameraStream.update(this, arFrame)
+        cameraNode.updateTrackedPose(camera)
+
+        children.filterIsInstance<ArNode>().forEach { it.onArFrame(arFrame, isCameraTracking) }
 
         lightEstimator?.update(this, arFrame)?.let { (environment, mainLight) ->
             environmentEstimated = environment
@@ -412,7 +431,7 @@ open class ArSceneView @JvmOverloads constructor(
 
         planeRenderer.update(arFrame)
 
-        trackingFailureReason = if (!camera.isTracking) {
+        trackingFailureReason = if (isCameraTracking) {
             camera.trackingFailureReason.takeIf { it != TrackingFailureReason.NONE }
         } else null
 
@@ -428,9 +447,6 @@ open class ArSceneView @JvmOverloads constructor(
             arFrame.updatedAugmentedFaces.forEach(onAugmentedFaceUpdate)
         }
 
-        lifecycle.dispatchEvent<ArSceneLifecycleObserver> {
-            onArFrame(arFrame)
-        }
         onArFrame?.invoke(arFrame)
     }
 
@@ -448,9 +464,12 @@ open class ArSceneView @JvmOverloads constructor(
      * @param applyConfig the apply block for the new config
      */
     fun configureSession(applyConfig: (ArSession, Config) -> Unit) {
-        lifecycle.doOnArSessionCreated { session ->
-            session.configure { config ->
-                applyConfig.invoke(session, config)
+        _onArSessionCreated += object : (ArSession) -> Unit {
+            override fun invoke(session: ArSession) {
+                _onArSessionCreated -= this
+                session.configure { config ->
+                    applyConfig.invoke(session, config)
+                }
             }
         }
     }
@@ -507,89 +526,14 @@ open class ArSceneView @JvmOverloads constructor(
 
     override fun destroy() {
         if (!isDestroyed) {
+            arCore.destroy()
+
             arCameraStream.destroy()
+
             lightEstimator?.destroy()
             planeRenderer.destroy()
         }
 
         super.destroy()
-    }
-}
-
-/**
- * ### A SurfaceView that integrates with ARCore and renders a scene.
- */
-interface ArSceneLifecycleOwner : SceneLifecycleOwner {
-    val arCore: ARCore
-    val arSession get() = arCore.session
-    val arSessionConfig get() = arSession?.config
-}
-
-class ArSceneLifecycle(sceneView: ArSceneView) : SceneLifecycle(sceneView) {
-    override val sceneView get() = super.sceneView as ArSceneView
-    val context get() = sceneView.context
-    val arCore get() = sceneView.arCore
-    val arSession get() = sceneView.arSession
-
-    /**
-     * ### Performs the given action when ARCore session is created
-     *
-     * If the ARCore session is already created the action will be performed immediately, otherwise
-     * the action will be performed after the ARCore session is next created.
-     * The action will only be invoked once, and any listeners will then be removed.
-     */
-    fun doOnArSessionCreated(action: (session: ArSession) -> Unit) {
-        arSession?.let(action) ?: addObserver(onArSessionCreated = {
-            removeObserver(this)
-            action(it)
-        })
-    }
-
-    fun addObserver(
-        onArSessionCreated: (ArSceneLifecycleObserver.(session: ArSession) -> Unit)? = null,
-        onArSessionFailed: (ArSceneLifecycleObserver.(exception: Exception) -> Unit)? = null,
-        onArSessionResumed: (ArSceneLifecycleObserver.(session: ArSession) -> Unit)? = null,
-        onArSessionConfigChanged: (ArSceneLifecycleObserver.(session: ArSession, config: Config) -> Unit)? = null,
-        onArFrame: (ArSceneLifecycleObserver.(arFrame: ArFrame) -> Unit)? = null
-    ) {
-        addObserver(object : ArSceneLifecycleObserver {
-            override fun onArSessionCreated(session: ArSession) {
-                onArSessionCreated?.invoke(this, session)
-            }
-
-            override fun onArSessionFailed(exception: Exception) {
-                onArSessionFailed?.invoke(this, exception)
-            }
-
-            override fun onArSessionResumed(session: ArSession) {
-                onArSessionResumed?.invoke(this, session)
-            }
-
-            override fun onArSessionConfigChanged(session: ArSession, config: Config) {
-                onArSessionConfigChanged?.invoke(this, session, config)
-            }
-
-            override fun onArFrame(arFrame: ArFrame) {
-                onArFrame?.invoke(this, arFrame)
-            }
-        })
-    }
-}
-
-interface ArSceneLifecycleObserver : SceneLifecycleObserver {
-
-    fun onArSessionCreated(session: ArSession) {
-    }
-
-    fun onArSessionFailed(exception: Exception) {
-    }
-
-    fun onArSessionResumed(session: ArSession) {
-    }
-
-    fun onArSessionConfigChanged(session: ArSession, config: Config) {
-    }
-
-    fun onArFrame(arFrame: ArFrame) {
     }
 }

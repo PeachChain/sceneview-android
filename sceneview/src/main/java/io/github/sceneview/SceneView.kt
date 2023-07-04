@@ -21,9 +21,6 @@ import com.google.android.filament.utils.HDRLoader
 import com.google.android.filament.utils.Manipulator
 import com.google.ar.sceneform.collision.CollisionSystem
 import com.google.ar.sceneform.rendering.ViewAttachmentManager
-import com.gorisse.thomas.lifecycle.getActivity
-import io.github.sceneview.Filament.engine
-import io.github.sceneview.Filament.transformManager
 import io.github.sceneview.environment.Environment
 import io.github.sceneview.environment.loadEnvironment
 import io.github.sceneview.gesture.CameraGestureDetector
@@ -60,9 +57,9 @@ open class SceneView @JvmOverloads constructor(
     attrs: AttributeSet? = null,
     defStyleAttr: Int = 0,
     defStyleRes: Int = 0,
-    cameraNode: CameraNode = CameraNode()
+    val engine: Engine = Filament.retain(),
+    cameraNode: CameraNode = CameraNode(engine)
 ) : SurfaceView(context, attrs, defStyleAttr, defStyleRes),
-    SceneLifecycleOwner,
     DefaultLifecycleObserver,
     Choreographer.FrameCallback,
     NodeParent,
@@ -84,8 +81,6 @@ open class SceneView @JvmOverloads constructor(
          */
         var allowDeselection = true
     }
-
-//    open var frameRate: FrameRate = FrameRate.Full
 
     val scene: Scene
     val view: View
@@ -275,12 +270,13 @@ open class SceneView @JvmOverloads constructor(
             selectedNodes = listOfNotNull(value)
         }
 
-    open val selectionVisualizer: (() -> Node)? = {
-        ModelNode("sceneview/models/node_selector.glb").apply {
-            isSelectable = false
-            collisionShape = null
-        }
-    }
+    open val selectionVisualizer: (() -> Node)? = null
+//        {
+//            ModelNode("sceneview/models/node_selector.glb").apply {
+//                isSelectable = false
+//                collisionShape = null
+//            }
+//        }
 
     /**
      * ### Invoked when an frame is processed
@@ -307,25 +303,24 @@ open class SceneView @JvmOverloads constructor(
      */
     var onTap: ((motionEvent: MotionEvent, node: Node?, renderable: Renderable?) -> Unit)? = null
 
-    protected var sceneLifecycle: SceneLifecycle? = null
-
-    protected val activity: ComponentActivity
-        get() = try {
-            findFragment<Fragment>().requireActivity()
-        } catch (e: Exception) {
-            context.getActivity()!!
-        }
-
     val uiHelper = UiHelper(UiHelper.ContextErrorPolicy.DONT_CHECK).apply {
         renderCallback = SurfaceCallback()
         attachTo(this@SceneView)
     }
+
+    open val lifecycle: Lifecycle? get() = findViewTreeLifecycleOwner()?.lifecycle
+
+    val coroutineScope get() = lifecycle?.coroutineScope
+
+    open val activity: ComponentActivity?
+        get() = try {
+            findFragment<Fragment>().requireActivity()
+        } catch (e: Exception) {
+            context as? ComponentActivity
+        }
+
     private val displayHelper = DisplayHelper(context)
     private var swapChain: SwapChain? = null
-
-    private val parentLifecycleObserver = LifecycleEventObserver { _, event ->
-        lifecycle.currentState = event.targetState
-    }
 
     override var children = listOf<Node>()
 
@@ -365,14 +360,12 @@ open class SceneView @JvmOverloads constructor(
             .build(Manipulator.Mode.ORBIT)
     }
 
-    var isDestroyed = false
+    protected var isDestroyed = false
 
     private var lastTick: Long = 0
-    private val surfaceMirrorer by lazy { SurfaceMirrorer(lifecycle) }
+    private var surfaceMirrorer: SurfaceMirrorer? = null
 
     init {
-        Filament.retain()
-
         renderer = engine.createRenderer()
         scene = engine.createScene()
         view = engine.createView()
@@ -380,7 +373,7 @@ open class SceneView @JvmOverloads constructor(
 
         // on mobile, better use lower quality color buffer
         view.renderQuality = view.renderQuality.apply {
-            hdrColorBuffer = QualityLevel.MEDIUM
+            hdrColorBuffer = QualityLevel.HIGH
         }
         view.dynamicResolutionOptions = view.dynamicResolutionOptions.apply {
             enabled = false
@@ -397,6 +390,7 @@ open class SceneView @JvmOverloads constructor(
         view.bloomOptions = view.bloomOptions.apply {
             enabled = false
         }
+
 //        view.ambientOcclusionOptions = view.ambientOcclusionOptions.apply {
 //            enabled = false
 //        }
@@ -456,22 +450,13 @@ open class SceneView @JvmOverloads constructor(
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
 
-        lifecycle.addObserver(this)
-
-        findViewTreeLifecycleOwner()?.lifecycle?.let { viewTreeLifecycle ->
-            viewTreeLifecycle.addObserver(parentLifecycleObserver)
-            if (lifecycle.currentState != viewTreeLifecycle.currentState) {
-                lifecycle.currentState = viewTreeLifecycle.currentState
-            }
-        }
+        lifecycle?.addObserver(this)
     }
 
     override fun onDetachedFromWindow() {
-        findViewTreeLifecycleOwner()?.lifecycle?.removeObserver(parentLifecycleObserver)
-        if (lifecycle.currentState != Lifecycle.State.DESTROYED) {
-            lifecycle.currentState = Lifecycle.State.DESTROYED
+        if (!isDestroyed) {
+            destroy()
         }
-        destroy()
         super.onDetachedFromWindow()
     }
 
@@ -494,9 +479,10 @@ open class SceneView @JvmOverloads constructor(
         viewAttachmentManager.onPause()
     }
 
-    override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
-        lifecycle.dispatchEvent<SceneLifecycleObserver> {
-            onSurfaceChanged(width, height)
+    override fun onDestroy(owner: LifecycleOwner) {
+        super.onDestroy(owner)
+        if (!isDestroyed) {
+            destroy()
         }
     }
 
@@ -519,11 +505,13 @@ open class SceneView @JvmOverloads constructor(
     }
 
     open fun doFrame(frameTime: FrameTime) {
+        children.forEach { it.onFrame(frameTime) }
+
         if (uiHelper.isReadyToRender) {
             // Allow the resource loader to finalize textures that have become ready.
 //        resourceLoader.asyncUpdateLoad()
 
-            transformManager.openLocalTransformTransaction()
+//            transformManager.openLocalTransformTransaction()
 
             // Only update the camera manipulator if a touch has been made
             if (lastTouchEvent != null) {
@@ -534,12 +522,9 @@ open class SceneView @JvmOverloads constructor(
                 }
             }
 
-            lifecycle.dispatchEvent<SceneLifecycleObserver> {
-                onFrame(frameTime)
-            }
             onFrame?.invoke(frameTime)
 
-            transformManager.commitLocalTransformTransaction()
+//            transformManager.commitLocalTransformTransaction()
 
             // Render the scene, unless the renderer wants to skip the frame.
             if (renderer.beginFrame(swapChain!!, frameTime.nanoseconds)) {
@@ -547,6 +532,8 @@ open class SceneView @JvmOverloads constructor(
                 renderer.endFrame()
             }
         }
+
+        surfaceMirrorer?.onFrame(this)
     }
 
     /** @see Scene.addEntity */
@@ -556,10 +543,18 @@ open class SceneView @JvmOverloads constructor(
     fun removeEntity(@Entity entity: Int) = scene.removeEntity(entity)
 
     /** @see Scene.addEntities */
-    fun addEntities(@Entity entities: IntArray) = scene.addEntities(entities)
+    fun addEntities(@Entity entities: IntArray) {
+        if (entities.isNotEmpty()) {
+            scene.addEntities(entities)
+        }
+    }
 
     /** @see Scene.removeEntities */
-    fun removeEntities(@Entity entities: IntArray) = scene.removeEntities(entities)
+    fun removeEntities(@Entity entities: IntArray) {
+        if (entities.isNotEmpty()) {
+            scene.removeEntities(entities)
+        }
+    }
 
     /** @see Scene.addEntity */
     fun addLight(@Entity light: Light) = scene.addEntity(light)
@@ -663,25 +658,28 @@ open class SceneView @JvmOverloads constructor(
         onPickingCompleted(NodeMotionEvent(e, node, renderable))
     }
 
+    fun startMirroring(surface: Surface) {
+        if (surfaceMirrorer == null) {
+            surfaceMirrorer = SurfaceMirrorer()
+        }
+        surfaceMirrorer?.startMirroring(this, surface)
+    }
+
+    fun stopMirroring(surface: Surface) {
+        surfaceMirrorer?.stopMirroring(surface)
+    }
+
     fun startRecording(mediaRecorder: MediaRecorder) {
         mediaRecorder.apply {
             setVideoSource(MediaRecorder.VideoSource.SURFACE)
         }
         mediaRecorder.prepare()
         mediaRecorder.start()
-        surfaceMirrorer.startMirroring(mediaRecorder.surface)
-    }
-
-    fun startMirroring(surface: Surface) {
-        surfaceMirrorer.startMirroring(surface)
-    }
-
-    fun stopMirroring(surface: Surface) {
-        surfaceMirrorer.stopMirroring(surface)
+        startMirroring(mediaRecorder.surface)
     }
 
     fun stopRecording(mediaRecorder: MediaRecorder) {
-        surfaceMirrorer.stopMirroring(mediaRecorder.surface)
+        stopMirroring(mediaRecorder.surface)
         mediaRecorder.stop()
         mediaRecorder.reset()
         mediaRecorder.surface.release()
@@ -695,12 +693,17 @@ open class SceneView @JvmOverloads constructor(
      */
     open fun destroy() {
         if (!isDestroyed) {
+            lifecycle?.removeObserver(this)
+
             runCatching { uiHelper.detach() }
 
             // Use runCatching because they should normally already been destroyed by the lifecycle and
             // Filament will throw an Exception when destroying them twice.
             runCatching { cameraNode.destroy() }
-            runCatching { mainLight?.destroyLight() }
+            allChildren.forEach {
+                runCatching { it.destroy() }
+            }
+            runCatching { mainLight?.let { engine.destroyLight(it) } }
             runCatching { indirectLight?.destroy() }
             runCatching { skybox?.destroy() }
 
@@ -714,11 +717,6 @@ open class SceneView @JvmOverloads constructor(
             isDestroyed = true
         }
     }
-
-    override fun getLifecycle() =
-        sceneLifecycle ?: SceneLifecycle(this).also {
-            sceneLifecycle = it
-        }
 
 //    private fun updateBackground() {
 //        if ((background is ColorDrawable && background.alpha == 255) || skybox != null) {
@@ -770,28 +768,5 @@ open class SceneView @JvmOverloads constructor(
         override fun onGrabEnd() {
             cameraManipulator?.grabEnd()
         }
-    }
-}
-
-/**
- * A SurfaceView that integrates with ARCore and renders a scene.
- */
-interface SceneLifecycleOwner : LifecycleOwner {
-}
-
-open class SceneLifecycle(open val sceneView: SceneView) : DefaultLifecycle(sceneView) {
-}
-
-interface SceneLifecycleObserver : DefaultLifecycleObserver {
-    /**
-     * Records a change in surface dimensions.
-     *
-     * @param width the updated width of the surface.
-     * @param height the updated height of the surface.
-     */
-    fun onSurfaceChanged(width: Int, height: Int) {
-    }
-
-    fun onFrame(frameTime: FrameTime) {
     }
 }

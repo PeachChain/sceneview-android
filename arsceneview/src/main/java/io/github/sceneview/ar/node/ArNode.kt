@@ -1,31 +1,23 @@
 package io.github.sceneview.ar.node
 
+import com.google.android.filament.Engine
 import com.google.ar.core.*
 import com.google.ar.core.Anchor.CloudAnchorState
 import com.google.ar.sceneform.math.Vector3
 import dev.romainguy.kotlin.math.*
 import io.github.sceneview.*
-import io.github.sceneview.ar.ArSceneLifecycle
-import io.github.sceneview.ar.ArSceneLifecycleObserver
 import io.github.sceneview.ar.ArSceneView
 import io.github.sceneview.ar.arcore.*
+import io.github.sceneview.math.Transform
 import io.github.sceneview.node.ModelNode
 
 /**
  * ### Construct a new placement AR Node
  */
-open class ArNode : ModelNode, ArSceneLifecycleObserver {
+open class ArNode(engine: Engine) : ModelNode(engine) {
 
     override val sceneView: ArSceneView? get() = super.sceneView as? ArSceneView
-    override val lifecycle: ArSceneLifecycle? get() = sceneView?.lifecycle
     protected val arSession: ArSession? get() = sceneView?.arSession
-
-    /**
-     * ### Move smoothly/slowly when there is a pose (AR position and rotation) update
-     *
-     * Use [smoothSpeed] to adjust the position and rotation change smoothness level
-     */
-    var isSmoothPoseEnable = true
 
     /**
      * ### Should the [ArNode.position] be updated with the ARCore detected [Pose]
@@ -86,30 +78,25 @@ open class ArNode : ModelNode, ArSceneLifecycleObserver {
      */
     open var pose: Pose? = null
         set(value) {
-//            if (field?.transform != value?.transform) {
             field = value
             if (value != null) {
-                if (applyPosePosition && applyPoseRotation) {
-                    if (isSmoothPoseEnable) {
-                        smoothTransform = value.transform
-                    } else {
-                        transform = value.transform
-                    }
-                } else {
-                    val posePosition = value.takeIf { applyPosePosition }?.position
-                        ?: position
-                    val poseQuaternion = value.takeIf { applyPoseRotation }?.quaternion
-                        ?: quaternion
-                    if (position != posePosition || quaternion != poseQuaternion) {
-                        transform(posePosition, poseQuaternion, smooth = isSmoothPoseEnable)
-                    }
-                }
-            } else {
-                // Should we move back the node to the default position
-//                    transform(DEFAULT_POSITION, DEFAULT_QUATERNION, smooth = isSmoothPoseEnable)
+                poseTransform = Transform(
+                    position = if (applyPosePosition) value.position else position,
+                    quaternion = if (applyPoseRotation) value.quaternion else quaternion,
+                    scale = scale
+                )
             }
             onPoseChanged?.invoke(value)
-//            }
+        }
+
+    open var poseTransform: Transform? = null
+        set(value) {
+            if (field != value) {
+                field = value
+                if (value != null) {
+                    transform(value)
+                }
+            }
         }
 
     /**
@@ -170,17 +157,12 @@ open class ArNode : ModelNode, ArSceneLifecycleObserver {
     override val isVisibleInHierarchy: Boolean
         get() = super.isVisibleInHierarchy && isCameraTracking
 
-    constructor() : super() {
-    }
-
-    constructor(anchor: Anchor) : this() {
+    constructor(engine: Engine, anchor: Anchor) : this(engine) {
         this.anchor = anchor
     }
 
-    override fun onArFrame(arFrame: ArFrame) {
-        super.onArFrame(arFrame)
-
-        isCameraTracking = arFrame.camera.isTracking
+    open fun onArFrame(arFrame: ArFrame, isCameraTracking: Boolean) {
+        this.isCameraTracking = isCameraTracking
 
         val anchor = anchor ?: return
 
@@ -345,9 +327,9 @@ open class ArNode : ModelNode, ArSceneLifecycleObserver {
     /** ### Gets the world-space down direction vector (-y) of this node */
 //    val worldDown get() = localToWorldDirection(Vector3.down())
 
-    override fun clone() = copy(ArNode())
+    override fun clone() = copy(ArNode(engine))
 
-    fun copy(toNode: ArNode = ArNode()) = toNode.apply {
+    fun copy(toNode: ArNode = ArNode(engine)) = toNode.apply {
         super.copy(toNode)
     }
 }

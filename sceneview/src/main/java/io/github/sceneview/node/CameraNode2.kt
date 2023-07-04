@@ -9,8 +9,13 @@ import com.google.ar.sceneform.math.Matrix
 import com.google.ar.sceneform.math.Vector3
 import com.google.ar.sceneform.utilities.Preconditions
 import dev.romainguy.kotlin.math.Float3
+import dev.romainguy.kotlin.math.Float4
 import dev.romainguy.kotlin.math.Quaternion
 import io.github.sceneview.createCamera
+import io.github.sceneview.math.Transform
+import io.github.sceneview.scene.destroy
+import io.github.sceneview.scene.setCustomProjection
+import io.github.sceneview.scene.setModelTransform
 import io.github.sceneview.utils.FrameTime
 import java.util.*
 import kotlin.math.tan
@@ -41,9 +46,9 @@ import kotlin.math.tan
  *
  * @param isFixed true to use with AR
  */
-open class CameraNode(engine: Engine, val isFixed: Boolean = true) : Node(engine) {
+open class CameraNode2(engine: Engine, val isFixed: Boolean = true) : Node(engine) {
 
-    val projectionMatrix = Matrix()
+    var projectionTransform = Transform()
     val viewMatrix
         get() = Matrix().apply {
             Matrix.invert(transformationMatrix, this)
@@ -106,8 +111,10 @@ open class CameraNode(engine: Engine, val isFixed: Boolean = true) : Node(engine
     private val viewHeight get() = sceneView?.height ?: FALLBACK_VIEW_HEIGHT
 
     protected var areMatricesInitialized = false
-    private var lastTransform = FloatArray(16)
-    private var lastProjectionMatrix = FloatArray(16)
+
+    //    private var lastTransform = FloatArray(16)
+    private var lastModelTransform = Transform()
+    private var lastProjectionTransform = Transform()
 
     init {
         position = DEFAULT_POSITION
@@ -117,24 +124,35 @@ open class CameraNode(engine: Engine, val isFixed: Boolean = true) : Node(engine
     override fun onFrame(frameTime: FrameTime) {
         super.onFrame(frameTime)
 
-        val transform = transformationMatrix.data
-        if (!Arrays.equals(transform, lastTransform)) {
-            lastTransform = transform
-            camera.setModelMatrix(transform)
+        if (transform != lastModelTransform) {
+            lastModelTransform = transform
+            camera.setModelTransform(transform)
         }
-        val projectionMatrix = projectionMatrix.data
-        if (!Arrays.equals(projectionMatrix, lastProjectionMatrix)) {
-            lastProjectionMatrix = projectionMatrix
-            val projectionMatrixDouble = DoubleArray(projectionMatrix.size)
-            for (i in projectionMatrix.indices) {
-                projectionMatrixDouble[i] = projectionMatrix[i].toDouble()
-            }
+        if (projectionTransform != lastProjectionTransform) {
+            lastProjectionTransform = projectionTransform
+//            val projectionMatrixDouble = DoubleArray(projectionMatrix.size)
+//            for (i in projectionMatrix.indices) {
+//                projectionMatrixDouble[i] = projectionMatrix[i].toDouble()
+//            }
             camera.setCustomProjection(
-                projectionMatrixDouble,
-                nearClipPlane.toDouble(),
-                farClipPlane.toDouble()
+                projectionTransform,
+                nearClipPlane,
+                farClipPlane
             )
         }
+//        val projectionMatrix = projectionMatrix.data
+//        if (!Arrays.equals(projectionMatrix, lastProjectionMatrix)) {
+//            lastProjectionMatrix = projectionMatrix
+//            val projectionMatrixDouble = DoubleArray(projectionMatrix.size)
+//            for (i in projectionMatrix.indices) {
+//                projectionMatrixDouble[i] = projectionMatrix[i].toDouble()
+//            }
+//            camera.setCustomProjection(
+//                projectionMatrixDouble,
+//                nearClipPlane.toDouble(),
+//                farClipPlane.toDouble()
+//            )
+//        }
     }// If this is an ArCamera, the projection matrix gets re-created when updateTrackedPose is
     // called every frame. Otherwise, update it now.
 
@@ -185,7 +203,7 @@ open class CameraNode(engine: Engine, val isFixed: Boolean = true) : Node(engine
     fun worldToScreenPoint(point: Vector3): Vector3 {
         // TODO : Move to Kotlin-Math
         val m = Matrix()
-        Matrix.multiply(projectionMatrix, viewMatrix, m)
+        Matrix.multiply(Matrix(projectionTransform.toFloatArray()), viewMatrix, m)
         val viewWidth = viewWidth
         val viewHeight = viewHeight
         val x = point.x
@@ -218,7 +236,7 @@ open class CameraNode(engine: Engine, val isFixed: Boolean = true) : Node(engine
         var z = point.z
         Preconditions.checkNotNull(dest, "Parameter \"dest\" was null.")
         val m = Matrix()
-        Matrix.multiply(projectionMatrix, viewMatrix, m)
+        Matrix.multiply(Matrix(projectionTransform.toFloatArray()), viewMatrix, m)
         Matrix.invert(m, m)
         val viewWidth = viewWidth
         val viewHeight = viewHeight
@@ -297,30 +315,58 @@ open class CameraNode(engine: Engine, val isFixed: Boolean = true) : Node(engine
      *
      */
     private fun setPerspective(
-        left: Float, right: Float, bottom: Float, top: Float, near: Float, far: Float
+        left: Float,
+        right: Float,
+        bottom: Float,
+        top: Float,
+        near: Float,
+        far: Float
     ) {
-        val data = projectionMatrix.data
         val reciprocalWidth = 1.0f / (right - left)
         val reciprocalHeight = 1.0f / (top - bottom)
         val reciprocalDepthRange = 1.0f / (far - near)
 
         // Right-handed, column major 4x4 matrix.
-        data[0] = 2.0f * near * reciprocalWidth
-        data[1] = 0.0f
-        data[2] = 0.0f
-        data[3] = 0.0f
-        data[4] = 0.0f
-        data[5] = 2.0f * near * reciprocalHeight
-        data[6] = 0.0f
-        data[7] = 0.0f
-        data[8] = (right + left) * reciprocalWidth
-        data[9] = (top + bottom) * reciprocalHeight
-        data[10] = -(far + near) * reciprocalDepthRange
-        data[11] = -1.0f
-        data[12] = 0.0f
-        data[13] = 0.0f
-        data[14] = -2.0f * far * near * reciprocalDepthRange
-        data[15] = 0.0f
+//        projectionMatrix = doubleArrayOf(
+//            2.0 * near * reciprocalWidth, 0.0, 0.0, 0.0,
+//            0.0, 2.0 * near * reciprocalHeight, 0.0, 0.0,
+//            (right + left) * reciprocalWidth,
+//            (top + bottom) * reciprocalHeight,
+//            -(far + near) * reciprocalDepthRange,
+//            -1.0,
+//            0.0,
+//            0.0,
+//            -2.0 * far * near * reciprocalDepthRange,
+//            0.0
+//        )
+
+        projectionTransform = Transform(
+            // Right-handed, column major 4x4 matrix.
+            x = Float4(
+                x = 2.0f * near * reciprocalWidth,
+                y = 0.0f,
+                z = 0.0f,
+                w = 0.0f
+            ),
+            y = Float4(
+                x = 0.0f,
+                y = 2.0f * near * reciprocalHeight,
+                z = 0.0f,
+                w = 0.0f
+            ),
+            z = Float4(
+                x = (right + left) * reciprocalWidth,
+                y = (top + bottom) * reciprocalHeight,
+                z = -(far + near) * reciprocalDepthRange,
+                w = -1.0f
+            ),
+            w = Float4(
+                x = 0.0f,
+                y = 0.0f,
+                z = -2.0f * far * near * reciprocalDepthRange,
+                w = 0.0f
+            )
+        )
         nearClipPlane = near
         farClipPlane = far
         areMatricesInitialized = true
@@ -328,14 +374,7 @@ open class CameraNode(engine: Engine, val isFixed: Boolean = true) : Node(engine
 
     override fun destroy() {
         super.destroy()
-        try {
-            engine.destroyCameraComponent(camera.entity)
-        } catch (_: Exception) {
-        }
-        try {
-            engine.entityManager.destroy(camera.entity)
-        } catch (_: Exception) {
-        }
+        camera.destroy(engine)
     }
 
     companion object {
