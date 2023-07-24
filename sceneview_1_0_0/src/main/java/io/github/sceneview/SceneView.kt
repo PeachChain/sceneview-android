@@ -197,7 +197,6 @@ open class SceneView @JvmOverloads constructor(
      * Helper that enables camera interaction similar to sketchfab or Google Maps
      */
     var cameraManipulator: CameraManipulator? = null
-        private set
 
     lateinit var nodesManipulator: NodesManipulator
         private set
