@@ -10,7 +10,7 @@ import android.util.AttributeSet
 import android.view.Choreographer
 import android.view.MotionEvent
 import android.view.Surface
-import android.view.SurfaceView
+import android.view.TextureView
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
