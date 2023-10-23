@@ -255,8 +255,11 @@ open class Node(val engine: Engine) : NodeParent, TransformProvider,
      *
      * @see TransformManager.getWorldTransform
      */
-    open val worldTransform: Transform
+    open var worldTransform: Transform
         get() = transformManager.getWorldTransform(transformInstance)
+        set(value) {
+            transform = worldToParent * value
+        }
 
     /**
      * Transform from the world coordinate system to the coordinate system of the parent.
@@ -347,6 +350,8 @@ open class Node(val engine: Engine) : NodeParent, TransformProvider,
     var smoothSpeed = 5.0f
 
     var smoothTransform: Transform? = null
+
+    var onSmoothEnd: ((node: Node) -> Unit)? = null
 
     /**
      * ### The node can be selected when a touch event happened
@@ -477,6 +482,7 @@ open class Node(val engine: Engine) : NodeParent, TransformProvider,
                 } else {
                     this.transform = smoothTransform
                     this.smoothTransform = null
+                    onSmoothEnd()
                 }
             } else {
                 this.smoothTransform = null
@@ -686,6 +692,10 @@ open class Node(val engine: Engine) : NodeParent, TransformProvider,
     fun smooth(transform: Transform, speed: Float = smoothSpeed) {
         smoothSpeed = speed
         smoothTransform = transform
+    }
+
+    open fun onSmoothEnd() {
+        onSmoothEnd?.invoke(this)
     }
 
     fun animatePositions(vararg positions: Position): ObjectAnimator =

@@ -1,6 +1,8 @@
 package io.github.sceneview.ar.arcore
 
+import com.google.ar.core.GeospatialPose
 import com.google.ar.core.Pose
+import dev.romainguy.kotlin.math.Float3
 import dev.romainguy.kotlin.math.Quaternion
 import dev.romainguy.kotlin.math.rotation
 import dev.romainguy.kotlin.math.translation
@@ -8,6 +10,7 @@ import io.github.sceneview.math.Direction
 import io.github.sceneview.math.Position
 import io.github.sceneview.math.Rotation
 import io.github.sceneview.math.Transform
+import io.github.sceneview.math.toTransform
 
 val Pose.position: Position
     get() = Position(x = tx(), y = ty(), z = tz())
@@ -16,7 +19,8 @@ val Pose.quaternion: Quaternion
     get() = Quaternion(x = qx(), y = qy(), z = qz(), w = qw())
 
 val Pose.transform: Transform
-    get() = translation(position) * rotation(quaternion)
+    get() = FloatArray(16).apply { toMatrix(this, 0) }.toTransform()
+//    get() = translation(position) * rotation(quaternion)
 
 val Pose.rotation: Rotation
     get() = quaternion.toEulerAngles()
@@ -60,3 +64,12 @@ fun Pose.calculateDistanceToPlane(cameraPose: Pose): Float {
     // Compute dot product of plane's normal with vector from camera to plane center.
     return (cameraX - this.tx()) * normal[0] + (cameraY - this.ty()) * normal[1] + (cameraZ - this.tz()) * normal[2]
 }
+
+val GeospatialPose.transform: Transform
+    get() = translation(
+        Position(
+            latitude.toFloat(),
+            longitude.toFloat(),
+            altitude.toFloat()
+        )
+    ) * rotation(eastUpSouthQuaternion.let { Quaternion(it[0], it[1], it[2], it[3]) })
