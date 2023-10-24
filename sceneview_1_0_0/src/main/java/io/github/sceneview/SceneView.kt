@@ -395,7 +395,7 @@ open class SceneView @JvmOverloads constructor(
         choreographer = Choreographer.getInstance()
 
         val backgroundColor = (background as? ColorDrawable)?.let { Color(it) }
-            ?: Color(android.graphics.Color.BLACK)
+            ?: Color(android.graphics.Color.TRANSPARENT)
 
         if (!isInEditMode) {
             // Setup Filament
