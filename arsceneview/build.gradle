@@ -2,6 +2,7 @@ plugins {
     id 'com.android.library'
     id 'kotlin-android'
     id 'org.jetbrains.dokka'
+    id 'maven-publish'
 }
 
 android {
@@ -37,7 +38,7 @@ android {
         compose = true
     }
     composeOptions {
-        kotlinCompilerExtensionVersion = "1.4.0-alpha02"
+        kotlinCompilerExtensionVersion = "1.4.8"
     }
     // Preserve compression of filament files
     androidResources {
@@ -46,12 +47,12 @@ android {
 }
 
 dependencies {
-    implementation 'androidx.core:core-ktx:1.10.1'
+    implementation 'androidx.core:core-ktx:1.12.0'
     implementation 'androidx.appcompat:appcompat:1.6.1'
 
     // Compose
-    implementation "androidx.compose.ui:ui:1.5.0"
-    implementation "androidx.compose.foundation:foundation:1.5.0"
+    implementation "androidx.compose.ui:ui:1.5.3"
+    implementation "androidx.compose.foundation:foundation:1.5.3"
 
     // SceneView
     api project(":sceneview")
@@ -60,4 +61,16 @@ dependencies {
     api "com.google.ar:core:1.39.0"
 }
 
-apply plugin: "com.vanniktech.maven.publish"
+afterEvaluate {
+    publishing {
+        publications {
+            release(MavenPublication) {
+                groupId = rootProject.ext.GROUP
+                artifactId = project.ext.POM_ARTIFACT_ID
+                version = project.ext.VERSION_NAME
+
+                from components.release
+            }
+        }
+    }
+}
