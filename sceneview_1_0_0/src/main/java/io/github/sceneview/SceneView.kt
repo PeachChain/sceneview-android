@@ -7,15 +7,19 @@ import android.media.MediaRecorder
 import android.os.Handler
 import android.os.Looper
 import android.util.AttributeSet
-import android.view.*
+import android.view.Choreographer
+import android.view.MotionEvent
+import android.view.Surface
+import android.view.TextureView
+import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
 import com.google.android.filament.*
 import com.google.android.filament.View.AntiAliasing
 import com.google.android.filament.View.QualityLevel
 import com.google.android.filament.android.DisplayHelper
 import com.google.android.filament.android.UiHelper
 import com.google.android.filament.utils.*
-import com.gorisse.thomas.lifecycle.observe
 import io.github.sceneview.geometries.Geometry
 import io.github.sceneview.geometries.destroyGeometry
 import io.github.sceneview.gesture.GestureDetector
@@ -371,8 +375,6 @@ open class SceneView @JvmOverloads constructor(
 
     private var lastTouchEvent: MotionEvent? = null
 
-    internal open val isOpaque get() = (background as? ColorDrawable)?.alpha == 255
-
     val loadingJobs = mutableListOf<Job>()
     internal val cameras = mutableListOf<Camera>()
     internal val indirectLights = mutableListOf<IndirectLight>()
@@ -393,6 +395,7 @@ open class SceneView @JvmOverloads constructor(
         choreographer = Choreographer.getInstance()
 
         val backgroundColor = (background as? ColorDrawable)?.let { Color(it) }
+            ?: Color(android.graphics.Color.TRANSPARENT)
 
         if (!isInEditMode) {
             // Setup Filament
@@ -405,7 +408,7 @@ open class SceneView @JvmOverloads constructor(
             renderer = engine.createRenderer()
             renderer.clearOptions = renderer.clearOptions.apply {
                 clear = !uiHelper.isOpaque
-                if (backgroundColor?.a == 1.0f) {
+                if (backgroundColor.a == 1.0f) {
                     clearColor = backgroundColor.toFloatArray()
                 }
             }
@@ -490,11 +493,11 @@ open class SceneView @JvmOverloads constructor(
         }
     }
 
-    private fun setupSurfaceView(backgroundColor: Color?) {
+    private fun setupSurfaceView(backgroundColor: Color) {
         // Setup SurfaceView
         uiHelper.renderCallback = SurfaceCallback()
         // Must be called before attachTo
-        uiHelper.isOpaque = isOpaque || backgroundColor?.a == 1.0f
+        uiHelper.isOpaque = backgroundColor.a == 1.0f
         uiHelper.attachTo(this)
     }
 
@@ -712,7 +715,19 @@ open class SceneView @JvmOverloads constructor(
      * You can also handle it manually by calling the corresponding functions
      */
     fun setLifecycle(lifecycle: Lifecycle) {
-        lifecycle.observe(onResume = { resume() }, onPause = { pause() }, onDestroy = { destroy() })
+        lifecycle.addObserver(object : DefaultLifecycleObserver {
+            override fun onResume(owner: LifecycleOwner) {
+                resume()
+            }
+
+            override fun onPause(owner: LifecycleOwner) {
+                pause()
+            }
+
+            override fun onDestroy(owner: LifecycleOwner) {
+                destroy()
+            }
+        })
     }
 
     open fun updateCameraProjection() {
