@@ -3,6 +3,7 @@ plugins {
     id 'kotlin-android'
     id 'filament-tools-plugin'
     id 'org.jetbrains.dokka'
+    id 'maven-publish'
 }
 
 
@@ -126,4 +127,16 @@ dependencies {
     implementation "com.github.kittinunf.fuel:fuel-coroutines:2.3.1"
 }
 
-apply plugin: "com.vanniktech.maven.publish"
+afterEvaluate {
+    publishing {
+        publications {
+            release(MavenPublication) {
+                groupId = rootProject.ext.GROUP
+                artifactId = project.ext.POM_ARTIFACT_ID
+                version = project.ext.VERSION_NAME
+
+                from components.release
+            }
+        }
+    }
+}

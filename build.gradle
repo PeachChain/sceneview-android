@@ -7,12 +7,13 @@ buildscript {
     dependencies {
         classpath 'com.android.tools.build:gradle:8.0.2'
         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:1.8.22"
-        // Maven Central Publish
-        classpath "com.vanniktech:gradle-maven-publish-plugin:0.25.3"
         // Dokka
         classpath "org.jetbrains.dokka:dokka-gradle-plugin:1.9.10"
     }
 }
+
+def localProperties = new Properties()
+localProperties.load(new FileInputStream(rootProject.file('local.properties')))
 
 apply plugin: 'org.jetbrains.dokka'
 
@@ -52,14 +53,20 @@ afterEvaluate {
     }
 }
 
-import com.vanniktech.maven.publish.SonatypeHost
-
-allprojects {
-    plugins.withId("com.vanniktech.maven.publish") {
-        mavenPublishing {
-            publishToMavenCentral(SonatypeHost.S01)
-
-            signAllPublications()
+subprojects {
+    plugins.withId("maven-publish") {
+        publishing {
+            repositories {
+                // Add the following lines to include the GitHub Package Registry
+                maven {
+                    name = "GitHubPackages"
+                    url = uri("https://maven.pkg.github.com/PeachChain/sceneview-android")
+                    credentials {
+                        username = localProperties['gpr.user']
+                        password = localProperties['gpr.key']
+                    }
+                }
+            }
         }
     }
 }

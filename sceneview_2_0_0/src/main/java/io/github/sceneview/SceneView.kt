@@ -10,7 +10,7 @@ import android.util.AttributeSet
 import android.view.Choreographer
 import android.view.MotionEvent
 import android.view.Surface
-import android.view.SurfaceView
+import android.view.TextureView
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
@@ -99,7 +99,7 @@ open class SceneView @JvmOverloads constructor(
             .viewport(width, height)
             .build(Manipulator.Mode.ORBIT)
     }
-) : SurfaceView(context, attrs, defStyleAttr, defStyleRes) {
+) : TextureView(context, attrs, defStyleAttr, defStyleRes) {
 
     /**
      * @param depth The value of the depth buffer at the picking query location
@@ -202,7 +202,6 @@ open class SceneView @JvmOverloads constructor(
      * Helper that enables camera interaction similar to sketchfab or Google Maps
      */
     var cameraManipulator: CameraManipulator? = null
-        private set
 
     lateinit var nodesManipulator: NodesManipulator
         private set
@@ -319,8 +318,8 @@ open class SceneView @JvmOverloads constructor(
      * @see NodeManager.getNode
      */
     val allChildNodes: List<Node>
-        get() = nodeManager.entities.filter { scene.hasEntity(it) }
-            .mapNotNull { nodeManager.getNode(it) }
+        get() = nodeManager.entityNodes.filter { scene.hasEntity(it.key) }
+            .mapNotNull { it.value }
 
     /**
      * Inverts the winding order of front faces.
@@ -397,7 +396,7 @@ open class SceneView @JvmOverloads constructor(
         choreographer = Choreographer.getInstance()
 
         val backgroundColor = (background as? ColorDrawable)?.let { Color(it) }
-            ?: Color(android.graphics.Color.BLACK)
+            ?: Color(android.graphics.Color.TRANSPARENT)
 
         if (!isInEditMode) {
             // Setup Filament

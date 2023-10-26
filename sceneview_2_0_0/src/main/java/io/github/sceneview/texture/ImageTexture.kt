@@ -28,6 +28,25 @@ class ImageTexture private constructor(val bitmap: Bitmap, texture: Texture) {
         }
 
         fun image(
+            filePath: String,
+            type: TextureType = TextureType.COLOR,
+            options: BitmapFactory.Options = BitmapFactory.Options()
+        ) = apply {
+            bitmap(
+                BitmapFactory.decodeFile(
+                    filePath,
+                    options.apply {
+                        // Color is the only type of texture we want to pre-multiply with the alpha
+                        // channel. Pre-multiplication is the default behavior, so we need to turn it
+                        // off here
+                        inPremultiplied = type == TextureType.COLOR
+                    }),
+                type = type
+            )
+        }
+
+
+        fun image(
             assets: AssetManager,
             fileLocation: String,
             type: TextureType = TextureType.COLOR
@@ -43,7 +62,8 @@ class ImageTexture private constructor(val bitmap: Bitmap, texture: Texture) {
                         // channel. Pre-multiplication is the default behavior, so we need to turn it
                         // off here
                         inPremultiplied = type == TextureType.COLOR
-                    })
+                    }),
+                type = type
             )
         }
 
@@ -60,7 +80,8 @@ class ImageTexture private constructor(val bitmap: Bitmap, texture: Texture) {
                     // channel. Pre-multiplication is the default behavior, so we need to turn it
                     // off here
                     inPremultiplied = type == TextureType.COLOR
-                })
+                }),
+            type = type
         )
 
         override fun build(engine: Engine): Texture = super.build(engine).apply {
