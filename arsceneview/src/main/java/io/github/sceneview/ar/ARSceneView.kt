@@ -6,6 +6,7 @@ import android.util.AttributeSet
 import android.util.Size
 import android.view.MotionEvent
 import androidx.activity.ComponentActivity
+import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import com.google.android.filament.Engine
@@ -37,7 +38,6 @@ import io.github.sceneview.ar.camera.ARCameraStream
 import io.github.sceneview.ar.node.ARCameraNode
 import io.github.sceneview.ar.node.PoseNode
 import io.github.sceneview.ar.scene.PlaneRenderer
-import io.github.sceneview.environment.Environment
 import io.github.sceneview.loaders.MaterialLoader
 import io.github.sceneview.loaders.ModelLoader
 import io.github.sceneview.node.LightNode
@@ -45,7 +45,7 @@ import io.github.sceneview.node.Node
 import io.github.sceneview.utils.setKeepScreenOn
 
 /**
- * ### A SurfaceView that integrates with ARCore and renders a scene
+ * A SurfaceView that integrates with ARCore and renders a scene
  *
  * @param sessionFeatures Fundamental session features
  */
@@ -206,6 +206,30 @@ open class ARSceneView @JvmOverloads constructor(
      */
     val planeRenderer = PlaneRenderer(engine, modelLoader, materialLoader, scene)
 
+    final override var indirectLight: IndirectLight? = super.indirectLight
+        set(value) {
+            super.indirectLight = value
+            field = value
+        }
+
+    var indirectLightEstimated: IndirectLight?
+        get() = super.indirectLight
+        private set(value) {
+            super.indirectLight = value
+        }
+
+    final override var mainLightNode: LightNode? = super.mainLightNode
+        set(value) {
+            super.mainLightNode = value
+            field = value
+        }
+
+    var mainLightEstimatedNode: LightNode?
+        get() = super.mainLightNode
+        set(value) {
+            super.mainLightNode = value
+        }
+
     /**
      * The environment and main light that are estimated by AR Core to render the scene.
      *
@@ -216,41 +240,32 @@ open class ARSceneView @JvmOverloads constructor(
 
     var lightEstimation: LightEstimator.Estimation? = null
         private set(value) {
-            value?.mainLightColorFactor?.let {
-                mainLightNode?.color = DEFAULT_MAIN_LIGHT_COLOR * it
-            }
-            value?.mainLightIntensityFactor?.let {
-                mainLightNode?.intensity = DEFAULT_MAIN_LIGHT_INTENSITY * it
-            }
-            value?.mainLightDirection?.let {
-                mainLightNode?.lightDirection = it
-            }
-            value?.environment?.let {
-                environment = it
-                // Delete previous environment only in case of new one
-                if (field?.environment != it) {
-                    field?.environment?.destroy()
-                }
-            }
             field = value
+            if (value != null) {
+                mainLightNode?.let { mainLightNode ->
+                    value.mainLightColor?.let {
+                        mainLightEstimatedNode?.color = mainLightNode.color * it
+                    }
+                    value.mainLightIntensity?.let {
+                        mainLightEstimatedNode?.intensity = mainLightNode.intensity * it
+                    }
+                    value.mainLightDirection?.let {
+                        mainLightEstimatedNode?.lightDirection = it
+                    }
+                }
 
-            onLightEstimationUpdated?.invoke(value)
-        }
-
-    override var environment: Environment?
-        get() = super.environment
-        set(value) {
-            super.environment = value
-            lightEstimator?.baseSphericalHarmonics = value?.sphericalHarmonics
-        }
-
-    override var indirectLight: IndirectLight?
-        get() = super.indirectLight
-        set(value) {
-            if (super.indirectLight != value) {
-                super.indirectLight = value
-                lightEstimator?.setBaseIndirectLight(value)
+                indirectLightEstimated = IndirectLight.Builder().apply {
+                    value.irradiance?.let {
+                        irradiance(3, it)
+                    } ?: indirectLight?.irradianceTexture?.let { irradiance(it) }
+                    value.reflections?.let {
+                        reflections(it)
+                    } ?: indirectLight?.reflectionsTexture?.let { reflections(it) }
+                    indirectLight?.intensity?.let { intensity(it) }
+                    indirectLight?.getRotation(null)?.let { rotation(it) }
+                }.build(engine)
             }
+            onLightEstimationUpdated?.invoke(value)
         }
 
     var trackingFailureReason: TrackingFailureReason? = null
@@ -304,8 +319,6 @@ open class ARSceneView @JvmOverloads constructor(
         hitResult: HitResult
     ) -> Unit)? = null
 
-    private var _onSessionCreated = mutableListOf<(session: Session) -> Unit>()
-
     val onLightEstimationUpdated: ((estimation: LightEstimator.Estimation?) -> Unit)? = null
 
     var onTrackingFailureChanged: ((trackingFailureReason: TrackingFailureReason?) -> Unit)? =
@@ -314,25 +327,22 @@ open class ARSceneView @JvmOverloads constructor(
     override val cameraGestureDetector = null
     override val cameraManipulator = null
 
+    private val lifecycleObserver = LifeCycleObserver()
+    override var lifecycle: Lifecycle?
+        get() = super.lifecycle
+        set(value) {
+            super.lifecycle?.removeObserver(lifecycleObserver)
+            super.lifecycle = value
+            value?.addObserver(lifecycleObserver)
+        }
+
+    private var _onSessionCreated = mutableListOf<(session: Session) -> Unit>()
+
     init {
         setCameraNode(sharedCameraNode ?: createCameraNode(engine).also {
             defaultCameraNode = it
         })
-    }
-
-    override fun onCreate(owner: LifecycleOwner) {
-        super.onCreate(owner)
-        arCore.create(context, activity, sessionFeatures)
-    }
-
-    override fun onResume(owner: LifecycleOwner) {
-        super.onResume(owner)
-        arCore.resume(context, activity)
-    }
-
-    override fun onPause(owner: LifecycleOwner) {
-        super.onPause(owner)
-        arCore.pause()
+        sharedLifecycle?.addObserver(lifecycleObserver)
     }
 
     override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
@@ -541,6 +551,25 @@ open class ARSceneView @JvmOverloads constructor(
             // Since we define a light that has the same intensity as the sun, it guarantees a
             // proper exposure
             setExposure(16.0f, 1.0f / 125.0f, 100.0f)
+        }
+    }
+
+
+    private inner class LifeCycleObserver : DefaultLifecycleObserver {
+        override fun onCreate(owner: LifecycleOwner) {
+            arCore.create(context, activity, sessionFeatures)
+        }
+
+        override fun onResume(owner: LifecycleOwner) {
+            arCore.resume(context, activity)
+        }
+
+        override fun onPause(owner: LifecycleOwner) {
+            arCore.pause()
+        }
+
+        override fun onDestroy(owner: LifecycleOwner) {
+            arCore.destroy()
         }
     }
 
