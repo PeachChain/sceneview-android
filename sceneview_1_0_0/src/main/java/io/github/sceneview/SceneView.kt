@@ -394,9 +394,6 @@ open class SceneView @JvmOverloads constructor(
 
         choreographer = Choreographer.getInstance()
 
-        val backgroundColor = (background as? ColorDrawable)?.let { Color(it) }
-            ?: Color(android.graphics.Color.TRANSPARENT)
-
         if (!isInEditMode) {
             // Setup Filament
             engine = sharedEngine ?: Engine.create()
@@ -408,7 +405,6 @@ open class SceneView @JvmOverloads constructor(
             renderer = engine.createRenderer()
             renderer.clearOptions = renderer.clearOptions.apply {
                 clear = true
-                clearColor = backgroundColor.toFloatArray()
             }
 
             scene = engine.createScene()
@@ -477,7 +473,7 @@ open class SceneView @JvmOverloads constructor(
                 castShadows(true)
             }
         }
-        setupSurfaceView(backgroundColor)
+        setupSurfaceView()
     }
 
     private fun setupWindowViewManager() {
@@ -491,11 +487,11 @@ open class SceneView @JvmOverloads constructor(
         }
     }
 
-    private fun setupSurfaceView(backgroundColor: Color) {
+    private fun setupSurfaceView() {
         // Setup SurfaceView
         uiHelper.renderCallback = SurfaceCallback()
         // Must be called before attachTo
-        uiHelper.isOpaque = backgroundColor.a == 1.0f
+        uiHelper.isOpaque = false
         uiHelper.attachTo(this)
     }
 
