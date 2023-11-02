@@ -407,10 +407,8 @@ open class SceneView @JvmOverloads constructor(
 
             renderer = engine.createRenderer()
             renderer.clearOptions = renderer.clearOptions.apply {
-                clear = !uiHelper.isOpaque
-                if (backgroundColor.a == 1.0f) {
-                    clearColor = backgroundColor.toFloatArray()
-                }
+                clear = true
+                clearColor = backgroundColor.toFloatArray()
             }
 
             scene = engine.createScene()
