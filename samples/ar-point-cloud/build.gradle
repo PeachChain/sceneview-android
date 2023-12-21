@@ -4,6 +4,8 @@ plugins {
 }
 
 android {
+    namespace "io.github.sceneview.sample.arpointcloud"
+
     compileSdk 34
 
     defaultConfig {
@@ -25,7 +27,7 @@ android {
     kotlinOptions {
         jvmTarget = JavaVersion.VERSION_17
     }
-    aaptOptions {
+    androidResources {
         noCompress 'filamat', 'ktx'
     }
     namespace 'io.github.sceneview.sample.arpointcloud'
@@ -35,6 +37,6 @@ dependencies {
     implementation project(":samples:common")
 
     // ArSceneView
-    releaseImplementation "io.github.sceneview:arsceneview:0.10.2"
+    releaseImplementation "io.github.sceneview:arsceneview:2.0.1"
     debugImplementation project(":arsceneview")
 }
